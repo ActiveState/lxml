@@ -1,26 +1,38 @@
 # support for RelaxNG validation
-cimport relaxng
+from lxml.includes cimport relaxng
+
+cdef object _rnc2rng
+try:
+    import rnc2rng as _rnc2rng
+except ImportError:
+    _rnc2rng = None
+
+
+cdef int _require_rnc2rng() except -1:
+    if _rnc2rng is None:
+        raise RelaxNGParseError(
+            'compact syntax not supported (please install rnc2rng)')
+    return 0
+
 
 class RelaxNGError(LxmlError):
-    u"""Base class for RelaxNG errors.
+    """Base class for RelaxNG errors.
     """
-    pass
 
 class RelaxNGParseError(RelaxNGError):
-    u"""Error while parsing an XML document as RelaxNG.
+    """Error while parsing an XML document as RelaxNG.
     """
-    pass
 
 class RelaxNGValidateError(RelaxNGError):
-    u"""Error while validating an XML document with a RelaxNG schema.
+    """Error while validating an XML document with a RelaxNG schema.
     """
-    pass
+
 
 ################################################################################
 # RelaxNG
 
 cdef class RelaxNG(_Validator):
-    u"""RelaxNG(self, etree=None, file=None)
+    """RelaxNG(self, etree=None, file=None)
     Turn a document into a Relax NG validator.
 
     Either pass a schema as Element or ElementTree, or pass a file or
@@ -33,59 +45,62 @@ cdef class RelaxNG(_Validator):
     def __init__(self, etree=None, *, file=None):
         cdef _Document doc
         cdef _Element root_node
-        cdef xmlNode* c_node
-        cdef xmlDoc* fake_c_doc
-        cdef char* c_href
-        cdef relaxng.xmlRelaxNGParserCtxt* parser_ctxt
+        cdef xmlDoc* fake_c_doc = NULL
+        cdef relaxng.xmlRelaxNGParserCtxt* parser_ctxt = NULL
         _Validator.__init__(self)
-        fake_c_doc = NULL
         if etree is not None:
             doc = _documentOrRaise(etree)
             root_node = _rootNodeOrRaise(etree)
-            c_node = root_node._c_node
-            # work around for libxml2 crash bug if document is not RNG at all
-            if _LIBXML_VERSION_INT < 20624:
-                c_href = _getNs(c_node)
-                if c_href is NULL or \
-                       cstd.strcmp(c_href,
-                                   'http://relaxng.org/ns/structure/1.0') != 0:
-                    raise RelaxNGParseError, u"Document is not Relax NG"
-            self._error_log.connect()
             fake_c_doc = _fakeRootDoc(doc._c_doc, root_node._c_node)
             parser_ctxt = relaxng.xmlRelaxNGNewDocParserCtxt(fake_c_doc)
         elif file is not None:
             if _isString(file):
-                filename = _encodeFilename(file)
-                self._error_log.connect()
-                parser_ctxt = relaxng.xmlRelaxNGNewParserCtxt(_cstr(filename))
+                if file[-4:].lower() == '.rnc':
+                    _require_rnc2rng()
+                    rng_data_utf8 = _utf8(_rnc2rng.dumps(_rnc2rng.load(file)))
+                    doc = _parseMemoryDocument(rng_data_utf8, parser=None, url=file)
+                    parser_ctxt = relaxng.xmlRelaxNGNewDocParserCtxt(doc._c_doc)
+                else:
+                    doc = None
+                    filename = _encodeFilename(file)
+                    with self._error_log:
+                        orig_loader = _register_document_loader()
+                        parser_ctxt = relaxng.xmlRelaxNGNewParserCtxt(_cstr(filename))
+                        _reset_document_loader(orig_loader)
+            elif (_getFilenameForFile(file) or '')[-4:].lower() == '.rnc':
+                _require_rnc2rng()
+                rng_data_utf8 = _utf8(_rnc2rng.dumps(_rnc2rng.load(file)))
+                doc = _parseMemoryDocument(
+                    rng_data_utf8, parser=None, url=_getFilenameForFile(file))
+                parser_ctxt = relaxng.xmlRelaxNGNewDocParserCtxt(doc._c_doc)
             else:
-                doc = _parseDocument(file, None, None)
-                self._error_log.connect()
+                doc = _parseDocument(file, parser=None, base_url=None)
                 parser_ctxt = relaxng.xmlRelaxNGNewDocParserCtxt(doc._c_doc)
         else:
-            raise RelaxNGParseError, u"No tree or file given"
+            raise RelaxNGParseError, "No tree or file given"
 
         if parser_ctxt is NULL:
-            self._error_log.disconnect()
             if fake_c_doc is not NULL:
                 _destroyFakeDoc(doc._c_doc, fake_c_doc)
             raise RelaxNGParseError(
                 self._error_log._buildExceptionMessage(
-                    u"Document is not parsable as Relax NG"),
+                    "Document is not parsable as Relax NG"),
                 self._error_log)
-        self._c_schema = relaxng.xmlRelaxNGParse(parser_ctxt)
-        self._error_log.disconnect()
 
-        if _LIBXML_VERSION_INT >= 20624:
-            relaxng.xmlRelaxNGFreeParserCtxt(parser_ctxt)
+        # Need a cast here because older libxml2 releases do not use 'const' in the functype.
+        relaxng.xmlRelaxNGSetParserStructuredErrors(
+            parser_ctxt, <xmlerror.xmlStructuredErrorFunc> _receiveError, <void*>self._error_log)
+        _connectGenericErrorLog(self._error_log, xmlerror.XML_FROM_RELAXNGP)
+        self._c_schema = relaxng.xmlRelaxNGParse(parser_ctxt)
+        _connectGenericErrorLog(None)
+
+        relaxng.xmlRelaxNGFreeParserCtxt(parser_ctxt)
         if self._c_schema is NULL:
             if fake_c_doc is not NULL:
-                if _LIBXML_VERSION_INT < 20624:
-                    relaxng.xmlRelaxNGFreeParserCtxt(parser_ctxt)
                 _destroyFakeDoc(doc._c_doc, fake_c_doc)
             raise RelaxNGParseError(
                 self._error_log._buildExceptionMessage(
-                    u"Document is not valid Relax NG"),
+                    "Document is not valid Relax NG"),
                 self._error_log)
         if fake_c_doc is not NULL:
             _destroyFakeDoc(doc._c_doc, fake_c_doc)
@@ -94,7 +109,7 @@ cdef class RelaxNG(_Validator):
         relaxng.xmlRelaxNGFree(self._c_schema)
 
     def __call__(self, etree):
-        u"""__call__(self, etree)
+        """__call__(self, etree)
 
         Validate doc using Relax NG.
 
@@ -109,25 +124,42 @@ cdef class RelaxNG(_Validator):
         doc = _documentOrRaise(etree)
         root_node = _rootNodeOrRaise(etree)
 
-        self._error_log.connect()
         valid_ctxt = relaxng.xmlRelaxNGNewValidCtxt(self._c_schema)
         if valid_ctxt is NULL:
-            self._error_log.disconnect()
-            python.PyErr_NoMemory()
+            raise MemoryError()
 
-        c_doc = _fakeRootDoc(doc._c_doc, root_node._c_node)
-        with nogil:
-            ret = relaxng.xmlRelaxNGValidateDoc(valid_ctxt, c_doc)
-        _destroyFakeDoc(doc._c_doc, c_doc)
+        try:
+            self._error_log.clear()
+            # Need a cast here because older libxml2 releases do not use 'const' in the functype.
+            relaxng.xmlRelaxNGSetValidStructuredErrors(
+                valid_ctxt, <xmlerror.xmlStructuredErrorFunc> _receiveError, <void*>self._error_log)
+            _connectGenericErrorLog(self._error_log, xmlerror.XML_FROM_RELAXNGV)
+            c_doc = _fakeRootDoc(doc._c_doc, root_node._c_node)
+            with nogil:
+                ret = relaxng.xmlRelaxNGValidateDoc(valid_ctxt, c_doc)
+            _destroyFakeDoc(doc._c_doc, c_doc)
+        finally:
+            _connectGenericErrorLog(None)
+            relaxng.xmlRelaxNGFreeValidCtxt(valid_ctxt)
 
-        relaxng.xmlRelaxNGFreeValidCtxt(valid_ctxt)
-
-        self._error_log.disconnect()
         if ret == -1:
             raise RelaxNGValidateError(
-                u"Internal error in Relax NG validation",
+                "Internal error in Relax NG validation",
                 self._error_log)
         if ret == 0:
             return True
         else:
             return False
+
+    @classmethod
+    def from_rnc_string(cls, src, base_url=None):
+        """Parse a RelaxNG schema in compact syntax from a text string
+
+        Requires the rnc2rng package to be installed.
+
+        Passing the source URL or file path of the source as 'base_url'
+        will enable resolving resource references relative to the source.
+        """
+        _require_rnc2rng()
+        rng_str = utf8(_rnc2rng.dumps(_rnc2rng.loads(src)))
+        return cls(_parseMemoryDocument(rng_str, parser=None, url=base_url))

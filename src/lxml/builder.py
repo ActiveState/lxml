@@ -1,3 +1,5 @@
+# cython: language_level=2
+
 #
 # Element generator factory by Fredrik Lundh.
 #
@@ -37,34 +39,31 @@
 The ``E`` Element factory for generating XML documents.
 """
 
+
 import lxml.etree as ET
+_QName = ET.QName
+
+from functools import partial
 
 try:
-    from functools import partial
+    from types import GenericAlias as _GenericAlias
 except ImportError:
-    # fake it for pre-2.5 releases
-    def partial(func, tag):
-        return lambda *args, **kwargs: func(tag, *args, **kwargs)
+    # Python 3.8 - we only need this as return value from "__class_getitem__"
+    def _GenericAlias(cls, item):
+        return f"{cls.__name__}[{item.__name__}]"
 
 try:
-    callable
+    basestring
 except NameError:
-    # Python 3
-    def callable(f):
-        return hasattr(f, '__call__')
-
-try:
-    basestring = __builtins__["basestring"]
-except (NameError, KeyError):
     basestring = str
 
 try:
-    unicode = __builtins__["unicode"]
-except (NameError, KeyError):
+    unicode
+except NameError:
     unicode = str
 
 
-class ElementMaker(object):
+class ElementMaker:
     """Element generator factory.
 
     Unlike the ordinary Element factory, the E factory allows you to pass in
@@ -118,7 +117,7 @@ class ElementMaker(object):
                     E.p("This is a paragraph with ", B("bold"), " text in it!"),
                     E.p("This is another paragraph, with a ",
                         A("link", href="http://www.python.org"), "."),
-                    E.p("Here are some reservered characters: <spam&egg>."),
+                    E.p("Here are some reserved characters: <spam&egg>."),
                     ET.XML("<p>And finally, here is an embedded XHTML fragment.</p>"),
                 )
             )
@@ -136,7 +135,7 @@ class ElementMaker(object):
             <h1 class="title">Hello!</h1>
             <p>This is a paragraph with <b>bold</b> text in it!</p>
             <p>This is another paragraph, with <a href="http://www.python.org">link</a>.</p>
-            <p>Here are some reservered characters: &lt;spam&amp;egg&gt;.</p>
+            <p>Here are some reserved characters: &lt;spam&amp;egg&gt;.</p>
             <p>And finally, here is an embedded XHTML fragment.</p>
           </body>
         </html>
@@ -144,49 +143,45 @@ class ElementMaker(object):
     For namespace support, you can pass a namespace map (``nsmap``)
     and/or a specific target ``namespace`` to the ElementMaker class::
 
-    >>> E = ElementMaker(namespace="http://my.ns/")
-    >>> print(ET.tostring( E.test ))
-    <test xmlns="http://my.ns/"/>
+        >>> E = ElementMaker(namespace="http://my.ns/")
+        >>> print(ET.tostring( E.test ))
+        <test xmlns="http://my.ns/"/>
 
-    >>> E = ElementMaker(namespace="http://my.ns/", nsmap={'p':'http://my.ns/'})
-    >>> print(ET.tostring( E.test ))
-    <p:test xmlns:p="http://my.ns/"/>
+        >>> E = ElementMaker(namespace="http://my.ns/", nsmap={'p':'http://my.ns/'})
+        >>> print(ET.tostring( E.test ))
+        <p:test xmlns:p="http://my.ns/"/>
     """
 
     def __init__(self, typemap=None,
                  namespace=None, nsmap=None, makeelement=None):
-        if namespace is not None:
-            self._namespace = '{' + namespace + '}'
-        else:
-            self._namespace = None
+        self._namespace = '{' + namespace + '}' if namespace is not None else None
+        self._nsmap = dict(nsmap) if nsmap else None
 
-        if nsmap:
-            self._nsmap = dict(nsmap)
-        else:
-            self._nsmap = None
+        assert makeelement is None or callable(makeelement)
+        self._makeelement = makeelement if makeelement is not None else ET.Element
 
-        if makeelement is not None:
-            assert callable(makeelement)
-            self._makeelement = makeelement
-        else:
-            self._makeelement = ET.Element
+        # initialize the default type map functions for this element factory
+        typemap = dict(typemap) if typemap else {}
 
-        # initialize type map for this element factory
-
-        if typemap:
-            typemap = typemap.copy()
-        else:
-            typemap = {}
-        
         def add_text(elem, item):
-            if len(elem):
-                elem[-1].tail = (elem[-1].tail or "") + item
-            else:
+            try:
+                last_child = elem[-1]
+            except IndexError:
                 elem.text = (elem.text or "") + item
+            else:
+                last_child.tail = (last_child.tail or "") + item
+
+        def add_cdata(elem, cdata):
+            if elem.text:
+                raise ValueError("Can't add a CDATA section. Element already has some text: %r" % elem.text)
+            elem.text = cdata
+
         if str not in typemap:
             typemap[str] = add_text
         if unicode not in typemap:
             typemap[unicode] = add_text
+        if ET.CDATA not in typemap:
+            typemap[ET.CDATA] = add_cdata
 
         def add_dict(elem, item):
             attrib = elem.attrib
@@ -195,38 +190,54 @@ class ElementMaker(object):
                     attrib[k] = v
                 else:
                     attrib[k] = typemap[type(v)](None, v)
+
         if dict not in typemap:
             typemap[dict] = add_dict
 
         self._typemap = typemap
 
     def __call__(self, tag, *children, **attrib):
-        get = self._typemap.get
+        typemap = self._typemap
 
-        if self._namespace is not None and tag[0] != '{':
+        # We'll usually get a 'str', and the compiled type check is very fast.
+        if not isinstance(tag, str) and isinstance(tag, _QName):
+            # A QName is explicitly qualified, do not look at self._namespace.
+            tag = tag.text
+        elif self._namespace is not None and tag[0] != '{':
             tag = self._namespace + tag
         elem = self._makeelement(tag, nsmap=self._nsmap)
         if attrib:
-            get(dict)(elem, attrib)
+            typemap[dict](elem, attrib)
 
         for item in children:
             if callable(item):
                 item = item()
-            t = get(type(item))
+            t = typemap.get(type(item))
             if t is None:
                 if ET.iselement(item):
                     elem.append(item)
                     continue
-                raise TypeError("bad argument type: %r" % item)
-            else:
-                v = t(elem, item)
-                if v:
-                    get(type(v))(elem, v)
+                for basetype in type(item).__mro__:
+                    # See if the typemap knows of any of this type's bases.
+                    t = typemap.get(basetype)
+                    if t is not None:
+                        break
+                else:
+                    raise TypeError("bad argument type: %s(%r)" %
+                                    (type(item).__name__, item))
+            v = t(elem, item)
+            if v:
+                typemap.get(type(v))(elem, v)
 
         return elem
 
     def __getattr__(self, tag):
         return partial(self, tag)
+
+    # Allow subscripting ElementMaker in type annotions (PEP 560)
+    def __class_getitem__(cls, item):
+        return _GenericAlias(cls, item)
+
 
 # create factory object
 E = ElementMaker()

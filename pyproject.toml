@@ -1,0 +1,73 @@
+[build-system]
+requires = ["Cython>=3.2.4", "setuptools"]
+
+[tool.cibuildwheel]
+build-verbosity = 1
+environment = {STATIC_DEPS="true", ZLIB_VERSION = "1.3.2", LIBICONV_VERSION = "1.18", LIBXML2_VERSION = "2.14.6", LIBXSLT_VERSION = "1.1.43"}
+enable = ["pypy", "cpython-prerelease"]
+       # "pypy"
+       # "cpython-prerelease"
+       # "cpython-freethreading"
+skip = [
+    "cp38-*",
+    "pp38-*",
+    "pp*-manylinux_i686",
+    "*-musllinux_i686",
+    # Reduce job load and HTTP hit rate on library servers.
+    "cp39-*_ppc64le",
+    "cp310-*_ppc64le",
+    "cp311-*_ppc64le",
+    "cp39-*_s390x",
+]
+#test-command = "python {package}/test.py -vv"
+#test-command = "python -c 'import lxml.etree, lxml.objectify, lxml.html'"
+#test-command = "python {package}/test.py --no-src -vv"
+
+[tool.cibuildwheel.linux]
+#archs = ["x86_64", "aarch64", "i686", "ppc64le", "s390x", "armv7l"]
+archs = ["x86_64", "aarch64", "i686", "ppc64le", "armv7l", "riscv64"]
+repair-wheel-command = "auditwheel repair --strip -w {dest_dir} {wheel}"
+
+[[tool.cibuildwheel.overrides]]
+select = "*linux_*"
+inherit.environment = "append"
+environment.CFLAGS = "-O3 -g1 -pipe -fPIC -flto"
+environment.AR = "gcc-ar"
+environment.NM = "gcc-nm"
+environment.RANLIB = "gcc-ranlib"
+environment.LDFLAGS = "-fPIC -flto"
+environment.STATIC_DEPS = "true"
+
+[[tool.cibuildwheel.overrides]]
+select = "*linux_i686"
+inherit.environment = "append"
+environment.CFLAGS = "-O3 -g1 -pipe -fPIC -flto -march=core2 -mtune=generic -mno-ssse3"
+
+[[tool.cibuildwheel.overrides]]
+select = "*linux_x86_64"
+inherit.environment = "append"
+environment.CFLAGS = "-O3 -g1 -pipe -fPIC -flto -march=core2 -mtune=generic -mno-ssse3"
+
+[[tool.cibuildwheel.overrides]]
+select = "*linux_aarch64"
+inherit.environment = "append"
+environment.CFLAGS = "-O3 -g1 -pipe -fPIC -flto -march=armv8-a -mtune=cortex-a72"
+
+# [[tool.cibuildwheel.overrides]]
+# select = "*i686 *musllinux* *win32 *win_arm64 *macosx_x86_64 *linux_armv7l *linux_ppc64le *linux_riscv64"
+# inherit.environment = "append"
+# environment.LXML_LIMITED_API = "true"
+# inherit.test-requires = "append"
+# test-requires = ["abi3audit>=0.0.25"]
+# inherit.test-command = "append"
+# test-command = ["abi3audit --strict --verbose {wheel}"]
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64", "x86", "ARM64"]
+
+[tool.cibuildwheel.macos]
+# https://cibuildwheel.readthedocs.io/en/stable/faq/#what-to-provide suggests to provide
+# x86_64 and one of universal2 or arm64 wheels.  x86_64 is still required by older pips,
+# so additional arm64 wheels would suffice.  However, since the library build uses a mixed
+# amd64/arm64 setup, we build universal2 wheels regardless.
+archs = ["x86_64", "universal2"]

@@ -1,18 +1,13 @@
-# -*- coding: utf-8 -*-
-
 """
 Test cases related to ISO-Schematron parsing and validation
 """
 
-import unittest, sys, os.path
+
+import unittest
 from lxml import isoschematron
 
-this_dir = os.path.dirname(__file__)
-if this_dir not in sys.path:
-    sys.path.insert(0, this_dir) # needed for Py3
+from .common_imports import etree, HelperTestCase, fileInTestDir, doctest, make_doctest
 
-from common_imports import etree, HelperTestCase, fileInTestDir
-from common_imports import doctest, make_doctest
 
 class ETreeISOSchematronTestCase(HelperTestCase):
     def test_schematron(self):
@@ -37,9 +32,10 @@ class ETreeISOSchematronTestCase(HelperTestCase):
     </pattern>
 </schema>
 ''')
+
         schema = isoschematron.Schematron(schema)
-        self.assert_(schema.validate(tree_valid))
-        self.assert_(not schema.validate(tree_invalid))
+        self.assertTrue(schema.validate(tree_valid))
+        self.assertTrue(not schema.validate(tree_invalid))
 
     def test_schematron_elementtree_error(self):
         self.assertRaises(ValueError, isoschematron.Schematron, etree.ElementTree())
@@ -54,8 +50,10 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 </schema>
 ''')
         schema = isoschematron.Schematron(schema)
-        self.assert_(schema)
-        
+        self.assertTrue(schema)
+
+    @unittest.skipIf(not isoschematron.schematron_schema_valid_supported,
+                     'SchematronParseError is only raised when validate_schema is true')
     def test_schematron_invalid_schema_empty(self):
         schema = self.parse('''\
 <schema xmlns="http://purl.oclc.org/dsdl/schematron" />
@@ -66,6 +64,20 @@ class ETreeISOSchematronTestCase(HelperTestCase):
     def test_schematron_invalid_schema_namespace(self):
         schema = self.parse('''\
 <schema xmlns="mynamespace" />
+''')
+        self.assertRaises(etree.SchematronParseError,
+                          isoschematron.Schematron, schema)
+
+    def test_schematron_invalid_namespace_prefix(self):
+        schema = self.parse('''\
+<xml:i />
+''')
+        self.assertRaises(etree.SchematronParseError,
+                          isoschematron.Schematron, schema)
+
+    def test_schematron_missing_namespace_prefix(self):
+        schema = self.parse('''\
+<rr />
 ''')
         self.assertRaises(etree.SchematronParseError,
                           isoschematron.Schematron, schema)
@@ -82,7 +94,7 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 </sch:schema>
 ''')
         schematron = isoschematron.Schematron(schema)
-        self.assert_(isinstance(schematron, isoschematron.Schematron))
+        self.assertTrue(isinstance(schematron, isoschematron.Schematron))
 
     def test_schematron_from_element(self):
         schema = self.parse('''\
@@ -96,11 +108,11 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 </sch:schema>
 ''')
         schematron = isoschematron.Schematron(schema.getroot())
-        self.assert_(isinstance(schematron, isoschematron.Schematron))
+        self.assertTrue(isinstance(schematron, isoschematron.Schematron))
 
     def test_schematron_from_file(self):
         schematron = isoschematron.Schematron(file=fileInTestDir('test.sch'))
-        self.assert_(isinstance(schematron, isoschematron.Schematron))
+        self.assertTrue(isinstance(schematron, isoschematron.Schematron))
 
     def test_schematron_call(self):
         schema = self.parse('''\
@@ -130,9 +142,9 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 </message>
 ''')
         schematron = isoschematron.Schematron(schema)
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
+        self.assertTrue(not valid)
 
     def test_schematron_validate(self):
         schema = self.parse('''\
@@ -162,9 +174,9 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 </message>
 ''')
         schematron = isoschematron.Schematron(schema)
-        self.assert_(schematron.validate(tree_valid), schematron.error_log)
+        self.assertTrue(schematron.validate(tree_valid), schematron.error_log)
         valid = schematron.validate(tree_invalid)
-        self.assert_(not valid)
+        self.assertTrue(not valid)
 
     def test_schematron_assertValid(self):
         schema = self.parse('''\
@@ -194,7 +206,7 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 </message>
 ''')
         schematron = isoschematron.Schematron(schema)
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         self.assertRaises(etree.DocumentInvalid, schematron.assertValid,
                           tree_invalid)
 
@@ -226,10 +238,10 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 </message>
 ''')
         schematron = isoschematron.Schematron(schema)
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assertEquals(len(schematron.error_log), 1,
+        self.assertTrue(not valid)
+        self.assertEqual(len(schematron.error_log), 1,
                           'expected single error: %s (%s errors)' %
                           (schematron.error_log, len(schematron.error_log)))
 
@@ -261,21 +273,19 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 </message>
 ''')
         schematron = isoschematron.Schematron(schema, store_report=True)
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assert_(
+        self.assertTrue(not valid)
+        self.assertTrue(
             isinstance(schematron.validation_report, etree._ElementTree),
-            'expected a validation report result tree, got: %s' %
-            (schematron.validation_report))
+            'expected a validation report result tree, got: %s' % schematron.validation_report)
 
         schematron = isoschematron.Schematron(schema, store_report=False)
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assert_(schematron.validation_report is None,
-            'validation reporting switched off, still: %s' %
-            (schematron.validation_report))
+        self.assertTrue(not valid)
+        self.assertTrue(schematron.validation_report is None,
+            'validation reporting switched off, still: %s' % schematron.validation_report)
 
     def test_schematron_store_schematron(self):
         schema = self.parse('''\
@@ -289,10 +299,10 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 </sch:schema>
 ''')
         schematron = isoschematron.Schematron(schema)
-        self.assert_(schematron.validator_xslt is None)
+        self.assertTrue(schematron.validator_xslt is None)
 
-        schematron = isoschematron.Schematron(schema, store_schematron=True) 
-        self.assert_(isinstance(schematron.schematron, etree._ElementTree),
+        schematron = isoschematron.Schematron(schema, store_schematron=True)
+        self.assertTrue(isinstance(schematron.schematron, etree._ElementTree),
                      'expected schematron schema to be stored')
 
     def test_schematron_store_xslt(self):
@@ -307,12 +317,12 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 </sch:schema>
 ''')
         schematron = isoschematron.Schematron(schema)
-        self.assert_(schematron.validator_xslt is None)
+        self.assertTrue(schematron.validator_xslt is None)
 
-        schematron = isoschematron.Schematron(schema, store_xslt=True) 
-        self.assert_(isinstance(schematron.validator_xslt, etree._ElementTree),
+        schematron = isoschematron.Schematron(schema, store_xslt=True)
+        self.assertTrue(isinstance(schematron.validator_xslt, etree._ElementTree),
                      'expected validator xslt to be stored')
-       
+
     def test_schematron_abstract(self):
         schema = self.parse('''\
 <sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
@@ -322,7 +332,7 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 
   <!-- of course, these only really make sense when combined with a schema that
        ensures datatype xs:dateTime -->
-       
+
   <sch:pattern abstract="true" id="abstract.dateTime.tz_utc">
     <sch:rule context="$datetime">
       <sch:let name="tz" value="concat(substring-after(substring-after(./text(), 'T'), '+'), substring-after(substring-after(./text(), 'T'), '-'))"/>
@@ -369,10 +379,10 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 </root>
 '''),
             ]
-                       
+
         schematron = isoschematron.Schematron(schema)
         for tree_valid in valid_trees:
-            self.assert_(schematron(tree_valid), schematron.error_log)
+            self.assertTrue(schematron(tree_valid), schematron.error_log)
 
         tree_invalid = self.parse('''\
 <root xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -382,8 +392,8 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 ''')
         expected = 2
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assertEquals(
+        self.assertTrue(not valid)
+        self.assertEqual(
             len(schematron.error_log), expected,
             'expected %s errors: %s (%s errors)' %
             (expected, schematron.error_log, len(schematron.error_log)))
@@ -396,8 +406,8 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 ''')
         expected = 1
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assertEquals(
+        self.assertTrue(not valid)
+        self.assertEqual(
             len(schematron.error_log), expected,
             'expected %s errors: %s (%s errors)' %
             (expected, schematron.error_log, len(schematron.error_log)))
@@ -426,7 +436,7 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 
   <!-- of course, these only really make sense when combined with a schema that
        ensures datatype xs:dateTime -->
-  
+
   <sch:pattern abstract="true" id="abstract.dateTime.tz_utc">
     <sch:rule context="$datetime">
       <sch:let name="tz" value="concat(substring-after(substring-after(./text(), 'T'), '+'), substring-after(substring-after(./text(), 'T'), '-'))"/>
@@ -482,11 +492,11 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 ''')
         # check everything (default phase #ALL)
         schematron = isoschematron.Schematron(schema)
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         expected = 3
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assertEquals(
+        self.assertTrue(not valid)
+        self.assertEqual(
             len(schematron.error_log), expected,
             'expected %s errors: %s (%s errors)' %
             (expected, schematron.error_log, len(schematron.error_log)))
@@ -494,11 +504,11 @@ class ETreeISOSchematronTestCase(HelperTestCase):
         # check phase mandatory
         schematron = isoschematron.Schematron(
             schema, compile_params={'phase': 'mandatory'})
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         expected = 1
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assertEquals(
+        self.assertTrue(not valid)
+        self.assertEqual(
             len(schematron.error_log), expected,
             'expected %s errors: %s (%s errors)' %
             (expected, schematron.error_log, len(schematron.error_log)))
@@ -506,11 +516,11 @@ class ETreeISOSchematronTestCase(HelperTestCase):
         # check phase datetime_checks
         schematron = isoschematron.Schematron(
             schema, compile_params={'phase': 'datetime_checks'})
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         expected = 2
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assertEquals(
+        self.assertTrue(not valid)
+        self.assertEqual(
             len(schematron.error_log), expected,
             'expected %s errors: %s (%s errors)' %
             (expected, schematron.error_log, len(schematron.error_log)))
@@ -518,15 +528,15 @@ class ETreeISOSchematronTestCase(HelperTestCase):
         # check phase full
         schematron = isoschematron.Schematron(
             schema, compile_params={'phase': 'full'})
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         expected = 3
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assertEquals(
+        self.assertTrue(not valid)
+        self.assertEqual(
             len(schematron.error_log), expected,
             'expected %s errors: %s (%s errors)' %
             (expected, schematron.error_log, len(schematron.error_log)))
-                                      
+
     def test_schematron_phases_kwarg(self):
         schema = self.parse('''\
 <sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
@@ -551,7 +561,7 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 
   <!-- of course, these only really make sense when combined with a schema that
        ensures datatype xs:dateTime -->
-  
+
   <sch:pattern abstract="true" id="abstract.dateTime.tz_utc">
     <sch:rule context="$datetime">
       <sch:let name="tz" value="concat(substring-after(substring-after(./text(), 'T'), '+'), substring-after(substring-after(./text(), 'T'), '-'))"/>
@@ -607,47 +617,47 @@ class ETreeISOSchematronTestCase(HelperTestCase):
 ''')
         # check everything (default phase #ALL)
         schematron = isoschematron.Schematron(schema)
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         expected = 3
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assertEquals(
+        self.assertTrue(not valid)
+        self.assertEqual(
             len(schematron.error_log), expected,
             'expected %s errors: %s (%s errors)' %
             (expected, schematron.error_log, len(schematron.error_log)))
 
         # check phase mandatory
         schematron = isoschematron.Schematron(schema, phase='mandatory')
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         expected = 1
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assertEquals(
+        self.assertTrue(not valid)
+        self.assertEqual(
             len(schematron.error_log), expected,
             'expected %s errors: %s (%s errors)' %
             (expected, schematron.error_log, len(schematron.error_log)))
 
         # check phase datetime_checks
         schematron = isoschematron.Schematron(schema, phase='datetime_checks')
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         expected = 2
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assertEquals(
+        self.assertTrue(not valid)
+        self.assertEqual(
             len(schematron.error_log), expected,
             'expected %s errors: %s (%s errors)' %
             (expected, schematron.error_log, len(schematron.error_log)))
 
         # check phase full
         schematron = isoschematron.Schematron(schema, phase='full')
-        self.assert_(schematron(tree_valid), schematron.error_log)
+        self.assertTrue(schematron(tree_valid), schematron.error_log)
         expected = 3
         valid = schematron(tree_invalid)
-        self.assert_(not valid)
-        self.assertEquals(
+        self.assertTrue(not valid)
+        self.assertEqual(
             len(schematron.error_log), expected, 'expected %s errors: %s (%s errors)' %
             (expected, schematron.error_log, len(schematron.error_log)))
-                                      
+
     def test_schematron_xmlschema_embedded(self):
         schema = self.parse('''\
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
@@ -700,11 +710,11 @@ class ETreeISOSchematronTestCase(HelperTestCase):
         xmlschema = etree.XMLSchema(schema)
         schematron = isoschematron.Schematron(schema)
         # fwiw, this must also be XMLSchema-valid
-        self.assert_(xmlschema(tree_valid), xmlschema.error_log)
-        self.assert_(schematron(tree_valid))
+        self.assertTrue(xmlschema(tree_valid), xmlschema.error_log)
+        self.assertTrue(schematron(tree_valid))
         # still schema-valid
-        self.assert_(xmlschema(tree_invalid), xmlschema.error_log)
-        self.assert_(not schematron(tree_invalid))
+        self.assertTrue(xmlschema(tree_invalid), xmlschema.error_log)
+        self.assertTrue(not schematron(tree_invalid))
 
     def test_schematron_relaxng_embedded(self):
         schema = self.parse('''\
@@ -756,11 +766,11 @@ class ETreeISOSchematronTestCase(HelperTestCase):
         relaxng = etree.RelaxNG(schema)
         schematron = isoschematron.Schematron(schema)
         # fwiw, this must also be RelaxNG-valid
-        self.assert_(relaxng(tree_valid), relaxng.error_log)
-        self.assert_(schematron(tree_valid))
+        self.assertTrue(relaxng(tree_valid), relaxng.error_log)
+        self.assertTrue(schematron(tree_valid))
         # still schema-valid
-        self.assert_(relaxng(tree_invalid), relaxng.error_log)
-        self.assert_(not schematron(tree_invalid))
+        self.assertTrue(relaxng(tree_invalid), relaxng.error_log)
+        self.assertTrue(not schematron(tree_invalid))
 
     def test_schematron_invalid_args(self):
         schema = self.parse('''\
@@ -785,13 +795,13 @@ class ETreeISOSchematronTestCase(HelperTestCase):
                     namespaces={'sch': "http://purl.oclc.org/dsdl/schematron"})
                     or [None])[0]
                 return schematron
-                              
+
             def _include(self, schematron, **kwargs):
                 raise RuntimeError('inclusion unsupported')
-            
+
             def _expand(self, schematron, **kwargs):
                 raise RuntimeError('expansion unsupported')
-            
+
             def _validation_errors(self, validationReport):
                 valid = etree.XPath(
                     'count(//svrl:successful-report[@flag="critical"])=1',
@@ -831,20 +841,42 @@ class ETreeISOSchematronTestCase(HelperTestCase):
         # check if overridden _expand is run
         self.assertRaises(RuntimeError, MySchematron, schema, store_report=True,
                           include=False)
-        
+
         schema = MySchematron(schema, store_report=True, include=False,
                               expand=False)
-        self.assert_(schema.validate(tree_valid))
-        self.assert_(not schema.validate(tree_invalid))
+        self.assertTrue(schema.validate(tree_valid))
+        self.assertTrue(not schema.validate(tree_invalid))
 
     #TODO: test xslt parameters for inclusion, expand & compile steps (?)
+
+    def test_schematron_fail_on_report(self):
+        tree_valid = self.parse('<AAA><BBB/><CCC/></AAA>')
+        tree_invalid = self.parse('<AAA><BBB/><CCC/><DDD/></AAA>')
+        schema = self.parse('''\
+<schema xmlns="http://purl.oclc.org/dsdl/schematron" >
+    <pattern id="OpenModel">
+        <title>Simple Report</title>
+        <rule context="AAA">
+            <report test="DDD"> DDD element must not be present</report>
+        </rule>
+    </pattern>
+</schema>
+''')
+        schema_report = isoschematron.Schematron(
+            schema, error_finder=isoschematron.Schematron.ASSERTS_AND_REPORTS)
+        schema_no_report = isoschematron.Schematron(schema)
+        self.assertTrue(schema_report.validate(tree_valid))
+        self.assertTrue(not schema_report.validate(tree_invalid))
+        self.assertTrue(schema_no_report.validate(tree_valid))
+        self.assertTrue(schema_no_report.validate(tree_invalid))
 
 
 def test_suite():
     suite = unittest.TestSuite()
-    suite.addTests([unittest.makeSuite(ETreeISOSchematronTestCase)])
+    suite.addTests([unittest.defaultTestLoader.loadTestsFromTestCase(ETreeISOSchematronTestCase)])
+    suite.addTests(doctest.DocTestSuite(isoschematron))
     suite.addTests(
-        [make_doctest('../../../doc/validation.txt')])
+        [make_doctest('validation.txt')])
     return suite
 
 if __name__ == '__main__':

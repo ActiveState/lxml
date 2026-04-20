@@ -1,8 +1,7 @@
-import unittest, sys
-from lxml.tests.common_imports import make_doctest
+import doctest
+import unittest
 
 def test_suite():
     suite = unittest.TestSuite()
-    if sys.version_info >= (2,4):
-        suite.addTests([make_doctest('test_formfill.txt')])
+    suite.addTests([doctest.DocFileSuite('test_formfill.txt')])
     return suite

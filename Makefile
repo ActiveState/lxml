@@ -1,40 +1,107 @@
-PYTHON?=python
-PYTHON3?=python3.0
-TESTFLAGS=-p -v
+PYTHON?=python3
+TESTFLAGS=-p -vv
 TESTOPTS=
 SETUPFLAGS=
-LXMLVERSION=`cat version.txt`
+LXMLVERSION:=$(shell $(PYTHON) -c 'import re; print(re.findall(r"__version__\s*=\s*\"([^\"]+)\"", open("src/lxml/__init__.py").read())[0])' )
+
+PYTHON_WITH_CYTHON?=$(shell $(PYTHON)  -c 'import Cython.Build.Dependencies' >/dev/null 2>/dev/null && echo " --with-cython" || true)
+CYTHON_WITH_COVERAGE?=$(shell $(PYTHON) -c 'import Cython.Coverage; import sys; assert not hasattr(sys, "pypy_version_info")' >/dev/null 2>/dev/null && echo " --coverage" || true)
+
+PYTHON_BUILD_VERSION ?= *
+MANYLINUX_LIBXML2_VERSION=2.14.6
+MANYLINUX_LIBXSLT_VERSION=1.1.43
+MANYLINUX_CFLAGS=-O3 -g1 -pipe -fPIC -flto
+MANYLINUX_LDFLAGS=-flto
+
+MANYLINUX_IMAGES= \
+	manylinux1_x86_64 \
+	manylinux1_i686 \
+	manylinux_2_24_x86_64 \
+	manylinux_2_24_i686 \
+	manylinux2014_aarch64 \
+	manylinux_2_24_aarch64 \
+	manylinux_2_24_ppc64le \
+	manylinux_2_28_x86_64 \
+	manylinux_2_28_aarch64 \
+	manylinux_2_28_ppc64le \
+	manylinux_2_24_s390x \
+	musllinux_1_1_x86_64 \
+    musllinux_1_1_aarch64
+
+.PHONY: all inplace rebuild-sdist sdist build require-cython wheel_manylinux wheel
 
 all: inplace
 
 # Build in-place
 inplace:
-	$(PYTHON) setup.py $(SETUPFLAGS) build_ext -i
+	$(PYTHON) setup.py $(SETUPFLAGS) build_ext -i $(PYTHON_WITH_CYTHON) --warnings $(subst --,--with-,$(CYTHON_WITH_COVERAGE)) -j7
+
+rebuild-sdist: require-cython
+	rm -f dist/lxml-$(LXMLVERSION).tar.gz
+	find src -name '*.c' -exec rm -f {} \;
+	$(MAKE) dist/lxml-$(LXMLVERSION).tar.gz
+
+dist/lxml-$(LXMLVERSION).tar.gz:
+	$(PYTHON) setup.py $(SETUPFLAGS) sdist $(PYTHON_WITH_CYTHON)
+
+sdist: dist/lxml-$(LXMLVERSION).tar.gz
 
 build:
-	$(PYTHON) setup.py $(SETUPFLAGS) build
+	$(PYTHON) setup.py $(SETUPFLAGS) build $(PYTHON_WITH_CYTHON) --warnings
+
+require-cython:
+	@[ -n "$(PYTHON_WITH_CYTHON)" ] || { \
+	    echo "NOTE: missing Cython - please use this command to install it: $(PYTHON) -m pip install Cython"; false; }
+
+qemu-user-static:
+	docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+wheel_manylinux: $(addprefix wheel_,$(MANYLINUX_IMAGES))
+$(addprefix wheel_,$(filter-out %_x86_64, $(filter-out %_i686, $(MANYLINUX_IMAGES)))): qemu-user-static
+
+wheel_%: dist/lxml-$(LXMLVERSION).tar.gz
+	time docker run --rm -t \
+		-v $(shell pwd):/io \
+		-e AR=gcc-ar \
+		-e NM=gcc-nm \
+		-e RANLIB=gcc-ranlib \
+		-e CFLAGS="$(MANYLINUX_CFLAGS) $(if $(patsubst %aarch64,,$@),-march=core2,-march=armv8-a -mtune=cortex-a72)" \
+		-e LDFLAGS="$(MANYLINUX_LDFLAGS)" \
+		-e STATIC_DEPS="${STATIC_DEPS}" \
+		-e LIBXML2_VERSION="$(MANYLINUX_LIBXML2_VERSION)" \
+		-e LIBXSLT_VERSION="$(MANYLINUX_LIBXSLT_VERSION)" \
+		-e PYTHON_BUILD_VERSION="$(PYTHON_BUILD_VERSION)" \
+		-e WHEELHOUSE=$(subst wheel_,wheelhouse/,$@) \
+		quay.io/pypa/$(subst wheel_,,$@) \
+		bash /io/tools/manylinux/build-wheels.sh /io/$<
+
+wheel:
+	$(PYTHON) setup.py $(SETUPFLAGS) bdist_wheel $(PYTHON_WITH_CYTHON) --warnings
+
+wheel_static:
+	$(PYTHON) setup.py $(SETUPFLAGS) bdist_wheel $(PYTHON_WITH_CYTHON) --warnings --static-deps
 
 test_build: build
 	$(PYTHON) test.py $(TESTFLAGS) $(TESTOPTS)
 
 test_inplace: inplace
-	$(PYTHON) test.py $(TESTFLAGS) $(TESTOPTS)
-	PYTHONPATH=src:$(PYTHONPATH) $(PYTHON) selftest.py
-	PYTHONPATH=src:$(PYTHONPATH) $(PYTHON) selftest2.py
-
-test_inplace3: inplace
-	$(MAKE) clean
-	$(PYTHON3) setup.py $(SETUPFLAGS) build_ext -i
-	$(PYTHON3) test.py $(TESTFLAGS) $(TESTOPTS)
-	PYTHONPATH=src:$(PYTHONPATH) $(PYTHON3) selftest.py
-	PYTHONPATH=src:$(PYTHONPATH) $(PYTHON3) selftest2.py
+	$(PYTHON) test.py $(TESTFLAGS) $(TESTOPTS) $(CYTHON_WITH_COVERAGE)
 
 valgrind_test_inplace: inplace
 	valgrind --tool=memcheck --leak-check=full --num-callers=30 --suppressions=valgrind-python.supp \
 		$(PYTHON) test.py
 
+fuzz: clean
+	$(MAKE) \
+		CC="/usr/bin/clang" \
+		CFLAGS="$$CFLAGS -fsanitize=fuzzer-no-link -g2" \
+		CXX="/usr/bin/clang++" \
+		CXXFLAGS="-fsanitize=fuzzer-no-link" \
+		inplace
+	$(PYTHON) src/lxml/tests/fuzz_xml_parse.py
+
 gdb_test_inplace: inplace
-	@echo -e "file $(PYTHON)\nrun test.py" > .gdb.command
+	@echo "file $(PYTHON)\nrun test.py" > .gdb.command
 	gdb -x .gdb.command -d src -d src/lxml
 
 bench_inplace: inplace
@@ -49,48 +116,47 @@ ftest_build: build
 ftest_inplace: inplace
 	$(PYTHON) test.py -f $(TESTFLAGS) $(TESTOPTS)
 
-apihtml: inplace
-	rm -fr doc/html/api
-	@[ -x "`which epydoc`" ] \
-		&& (cd src && echo "Generating API docs ..." && \
-			PYTHONPATH=. epydoc -v --docformat "restructuredtext en" \
-			-o ../doc/html/api --exclude='[.]html[.]tests|[.]_' \
-			--exclude-introspect='[.]usedoctest' \
-			--name "lxml API" --url / lxml/) \
-		|| (echo "not generating epydoc API documentation")
+apidoc: apidocclean inplace
+	@[ -x "`command -v sphinx-apidoc`" ] \
+		&& (echo "Generating API docs ..." && \
+			PYTHONPATH=src:$(PYTHONPATH) sphinx-apidoc -e -P -T -d1 -o doc/api src/lxml \
+				"*includes" "*tests" "*pyclasslookup.py" "*usedoctest.py" "*html/_html5builder.py" \
+				 "*html/_diff*" "*html/_setmixin*" \
+				"*.so" "*.pyd") \
+		|| (echo "not generating Sphinx autodoc API rst files")
 
-website: inplace
+apihtml: apidoc inplace
+	@[ -x "`command -v sphinx-build`" ] \
+		&& (echo "Generating API docs ..." && \
+			make -C doc/api html) \
+		|| (echo "not generating Sphinx autodoc API documentation")
+
+website: inplace docclean
 	PYTHONPATH=src:$(PYTHONPATH) $(PYTHON) doc/mkhtml.py doc/html . ${LXMLVERSION}
 
-html: inplace website apihtml s5
+html: apihtml website s5
 
 s5:
 	$(MAKE) -C doc/s5 slides
 
-apipdf: inplace
-	rm -fr doc/pdf
-	mkdir -p doc/pdf
-	@[ -x "`which epydoc`" ] \
-		&& (cd src && echo "Generating API docs ..." && \
-			PYTHONPATH=. epydoc -v --latex --docformat "restructuredtext en" \
-			-o ../doc/pdf --exclude='([.]html)?[.]tests|[.]_' \
-			--exclude-introspect='html[.]clean|[.]usedoctest' \
-			--name "lxml API" --url / lxml/) \
-		|| (echo "not generating epydoc API documentation")
+apipdf: apidoc inplace
+	rm -fr doc/api/_build
+	@[ -x "`command -v sphinx-build`" ] \
+		&& (echo "Generating API PDF docs ..." && \
+			make -C doc/api latexpdf) \
+		|| (echo "not generating Sphinx autodoc API PDF documentation")
 
-pdf: apipdf
+pdf: apipdf pdfclean
 	$(PYTHON) doc/mklatex.py doc/pdf . ${LXMLVERSION}
 	(cd doc/pdf && pdflatex lxmldoc.tex \
 		    && pdflatex lxmldoc.tex \
 		    && pdflatex lxmldoc.tex)
-	@pdfopt doc/pdf/lxmldoc.pdf doc/pdf/lxmldoc-${LXMLVERSION}.pdf
+	@cp doc/pdf/lxmldoc.pdf doc/pdf/lxmldoc-${LXMLVERSION}.pdf
 	@echo "PDF available as doc/pdf/lxmldoc-${LXMLVERSION}.pdf"
 
 # Two pdflatex runs are needed to build the correct Table of contents.
 
 test: test_inplace
-
-test3: test_inplace3
 
 valtest: valgrind_test_inplace
 
@@ -101,16 +167,22 @@ bench: bench_inplace
 ftest: ftest_inplace
 
 clean:
-	find . \( -name '*.o' -o -name '*.so' -o -name '*.py[cod]' -o -name '*.dll' \) -exec rm -f {} \;
+	find src \( -name '*.o' -o -name '*.so' -o -name '*.py[cod]' -o -name '*.dll' \) -exec rm -f {} \;
 	rm -rf build
 
 docclean:
 	$(MAKE) -C doc/s5 clean
 	rm -f doc/html/*.html
-	rm -fr doc/html/api
+
+pdfclean:
 	rm -fr doc/pdf
 
-realclean: clean docclean
-	find . -name '*.c' -exec rm -f {} \;
+apidocclean:
+	rm -fr doc/html/api
+	rm -f doc/api/lxml*.rst
+	rm -fr doc/api/_build
+
+realclean: clean docclean apidocclean
+	find src -name '*.c' -exec rm -f {} \;
 	rm -f TAGS
-	$(PYTHON) setup.py clean -a
+	$(PYTHON) setup.py clean -a --without-cython

@@ -13,10 +13,10 @@ This document describes how to read the source code of lxml_ and how
 to start working on it.  You might also be interested in the companion
 document that describes `how to build lxml from sources`_.
 
-.. _lxml: http://codespeak.net/lxml/
+.. _lxml: https://lxml.de/
 .. _`how to build lxml from sources`: build.html
 .. _`ReStructured Text`: http://docutils.sourceforge.net/rst.html
-.. _epydoc: http://epydoc.sourceforge.net/
+.. _Sphinx: https://www.sphinx-doc.org/
 .. _docutils: http://docutils.sourceforge.net/
 .. _`C-level API`: capi.html
 
@@ -69,13 +69,13 @@ Where to start?
 ===============
 
 First of all, read `how to build lxml from sources`_ to learn how to
-retrieve the source code from the Subversion repository and how to
+retrieve the source code from the GitHub repository and how to
 build it.  The source code lives in the subdirectory ``src`` of the
 checkout.
 
 The main extension modules in lxml are ``lxml.etree`` and
 ``lxml.objectify``.  All main modules have the file extension
-``.pyx``, which shows the descendence from Pyrex.  As usual in Python,
+``.pyx``, which shows the descent from Pyrex.  As usual in Python,
 the main files start with a short description and a couple of imports.
 Cython distinguishes between the run-time ``import`` statement (as
 known from Python) and the compile-time ``cimport`` statement, which
@@ -139,22 +139,23 @@ The easiest way to generate the HTML pages is by calling::
     make html
 
 This will call the script ``doc/mkhtml.py`` to run the ReST processor
-on the files.  After generating an HTML page the script parses it back
+on the files.  After generating an HTML page, the script parses it back
 in to build the side menu, and injects the complete menu into each
 page at the very end.
 
-Running the ``make`` command will also generate the API documentation
-if you have epydoc_ installed.  The epydoc package will import and
-introspect the extension modules and also introspect and parse the
-Python modules of lxml.  The aggregated information will then be
-written out into an HTML documentation site.
+Running ``make html`` will also generate the API documentation if you
+have Sphinx_ installed.  The build first runs ``sphinx-apidoc`` to
+generate API reference pages in `ReStructured Text`_ format.  It then
+runs ``sphinx-build``, which imports and introspects the extension
+and Python modules of lxml and writes the final API documentation
+HTML files.
 
 
 lxml.etree
 ==========
 
 The main module, ``lxml.etree``, is in the file `lxml.etree.pyx
-<http://codespeak.net/svn/lxml/trunk/src/lxml/lxml.etree.pyx>`_.  It
+<https://github.com/lxml/lxml/blob/master/src/lxml/etree.pyx>`_.  It
 implements the main functions and types of the ElementTree API, as
 well as all the factory functions for proxies.  It is the best place
 to start if you want to find out how a specific feature is
@@ -204,7 +205,7 @@ parser.pxi
     Parsers for XML and HTML.  This is the main parser engine.  It's
     the reason why you can parse a document from various sources in
     two lines of Python code.  It's definitely not the right place to
-    start reading lxml's soure code.
+    start reading lxml's source code.
 
 parsertarget.pxi
     An ElementTree compatible parser target implementation based on
@@ -213,7 +214,7 @@ parsertarget.pxi
 proxy.pxi
     Very low-level functions for memory allocation/deallocation
     and Element proxy handling.  Ignoring this for the beginning
-    will safe your head from exploding.
+    will save your head from exploding.
 
 public-api.pxi
     The set of C functions that are exported to other extension
@@ -303,7 +304,7 @@ lxml.objectify
 A Cython implemented extension module that uses the public C-API of
 lxml.etree.  It provides a Python object-like interface to XML trees.
 The implementation resides in the file `lxml.objectify.pyx
-<http://codespeak.net/svn/lxml/trunk/src/lxml/lxml.objectify.pyx>`_.
+<https://github.com/lxml/lxml/blob/master/src/lxml/objectify.pyx>`_.
 
 
 lxml.html

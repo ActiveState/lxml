@@ -7,20 +7,23 @@ ctypedef enum _InputDocumentDataType:
     PARSER_DATA_FILENAME
     PARSER_DATA_FILE
 
+@cython.final
+@cython.internal
 cdef class _InputDocument:
     cdef _InputDocumentDataType _type
-    cdef object _data_bytes
+    cdef bytes _data_bytes
     cdef object _filename
     cdef object _file
+    cdef bint _close_file
 
     def __cinit__(self):
         self._type = PARSER_DATA_INVALID
 
 
 cdef class Resolver:
-    u"This is the base class of all resolvers."
+    "This is the base class of all resolvers."
     def resolve(self, system_url, public_id, context):
-        u"""resolve(self, system_url, public_id, context)
+        """resolve(self, system_url, public_id, context)
 
         Override this method to resolve an external source by
         ``system_url`` and ``public_id``.  The third argument is an
@@ -31,7 +34,7 @@ cdef class Resolver:
         return None
 
     def resolve_empty(self, context):
-        u"""resolve_empty(self, context)
+        """resolve_empty(self, context)
 
         Return an empty input document.
 
@@ -43,7 +46,7 @@ cdef class Resolver:
         return doc_ref
 
     def resolve_string(self, string, context, *, base_url=None):
-        u"""resolve_string(self, string, context, base_url=None)
+        """resolve_string(self, string, context, base_url=None)
 
         Return a parsable string as input document.
 
@@ -52,9 +55,9 @@ cdef class Resolver:
         argument.
         """
         cdef _InputDocument doc_ref
-        if python.PyUnicode_Check(string):
-            string = python.PyUnicode_AsUTF8String(string)
-        elif not python.PyBytes_Check(string):
+        if isinstance(string, unicode):
+            string = (<unicode>string).encode('utf8')
+        elif not isinstance(string, bytes):
             raise TypeError, "argument must be a byte string or unicode string"
         doc_ref = _InputDocument()
         doc_ref._type = PARSER_DATA_STRING
@@ -64,7 +67,7 @@ cdef class Resolver:
         return doc_ref
 
     def resolve_filename(self, filename, context):
-        u"""resolve_filename(self, filename, context)
+        """resolve_filename(self, filename, context)
 
         Return the name of a parsable file as input document.
 
@@ -77,14 +80,15 @@ cdef class Resolver:
         doc_ref._filename = _encodeFilename(filename)
         return doc_ref
 
-    def resolve_file(self, f, context, *, base_url=None):
-        u"""resolve_file(self, f, context, base_url=None)
+    def resolve_file(self, f, context, *, base_url=None, bint close=True):
+        """resolve_file(self, f, context, base_url=None, close=True)
 
         Return an open file-like object as input document.
 
         Pass open file and context as parameters.  You can pass the
         base URL or filename of the file through the ``base_url``
-        keyword argument.
+        keyword argument.  If the ``close`` flag is True (the
+        default), the file will be closed after reading.
 
         Note that using ``.resolve_filename()`` is more efficient,
         especially in threaded environments.
@@ -93,16 +97,19 @@ cdef class Resolver:
         try:
             f.read
         except AttributeError:
-            raise TypeError, u"Argument is not a file-like object"
+            raise TypeError, "Argument is not a file-like object"
         doc_ref = _InputDocument()
         doc_ref._type = PARSER_DATA_FILE
         if base_url is not None:
             doc_ref._filename = _encodeFilename(base_url)
         else:
             doc_ref._filename = _getFilenameForFile(f)
+        doc_ref._close_file = close
         doc_ref._file = f
         return doc_ref
 
+@cython.final
+@cython.internal
 cdef class _ResolverRegistry:
     cdef object _resolvers
     cdef Resolver _default_resolver
@@ -111,7 +118,7 @@ cdef class _ResolverRegistry:
         self._default_resolver = default_resolver
 
     def add(self, Resolver resolver not None):
-        u"""add(self, resolver)
+        """add(self, resolver)
 
         Register a resolver.
 
@@ -124,7 +131,7 @@ cdef class _ResolverRegistry:
         self._resolvers.add(resolver)
 
     def remove(self, resolver):
-        u"remove(self, resolver)"
+        "remove(self, resolver)"
         self._resolvers.discard(resolver)
 
     cdef _ResolverRegistry _copy(self):
@@ -134,11 +141,11 @@ cdef class _ResolverRegistry:
         return registry
 
     def copy(self):
-        u"copy(self)"
+        "copy(self)"
         return self._copy()
 
     def resolve(self, system_url, public_id, context):
-        u"resolve(self, system_url, public_id, context)"
+        "resolve(self, system_url, public_id, context)"
         for resolver in self._resolvers:
             result = resolver.resolve(system_url, public_id, context)
             if result is not None:
@@ -150,13 +157,18 @@ cdef class _ResolverRegistry:
     def __repr__(self):
         return repr(self._resolvers)
 
+
+@cython.internal
 cdef class _ResolverContext(_ExceptionContext):
     cdef _ResolverRegistry _resolvers
     cdef _TempStore _storage
 
-    cdef void clear(self):
+    @cython.final
+    cdef int clear(self) except -1:
         _ExceptionContext.clear(self)
         self._storage.clear()
+        return 0
+
 
 cdef _initResolverContext(_ResolverContext context,
                           _ResolverRegistry resolvers):

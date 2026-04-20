@@ -19,11 +19,11 @@ A Node can be safely freed when:
 
 * no Proxy is connected to this Node
 
-* no Proxy cannot be created for this Node
+* no Proxy can be created for this Node
 
 A Proxy cannot be created to a CNode when:
 
-* no Proxy exist for nodes that are connected to that Node
+* no Proxy exists for nodes that are connected to that Node
 
 This is the case when:
 
@@ -31,7 +31,7 @@ This is the case when:
 
 This means that the whole tree in such a condition can be freed.
 
-Detecting whether a Node is in a tree thas has no Proxies connected to
+Detecting whether a Node is in a tree that has no Proxies connected to
 it can be done by relying on Python's garbage collection
 algorithm. Each Proxy can have a reference to the Proxy that points to
 the top of the tree. In case of a document tree, this reference is to
@@ -47,7 +47,7 @@ reference to the Document Node. This means that a Document Node can
 only be garbage collected when no more Proxies at all exist anymore
 which refer to the Document. This is a separate system from the
 top-Node references, even though the top-node in many cases will be
-the Document. This because there is no way to get to a node that is
+the Document. This is because there is no way to get to a node that is
 not connected to the Document tree from a Document Proxy.
 
 This approach requires a system that can keep track of the top of the

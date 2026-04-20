@@ -2,17 +2,15 @@
 # (probably in a test; this may not match the DTD exactly, but we
 # should document just how it differs).
 
-# Data taken from http://www.w3.org/TR/html401/index/elements.html
-
-try:
-    frozenset
-except NameError:
-    from sets import Set as frozenset
-
+"""
+Data taken from https://www.w3.org/TR/html401/index/elements.html
+and https://html.spec.whatwg.org/multipage/syntax.html#elements-2
+for html5_tags.
+"""
 
 empty_tags = frozenset([
-    'area', 'base', 'basefont', 'br', 'col', 'frame', 'hr',
-    'img', 'input', 'isindex', 'link', 'meta', 'param'])
+    'area', 'base', 'basefont', 'br', 'col', 'embed', 'frame', 'hr',
+    'img', 'input', 'isindex', 'link', 'meta', 'param', 'source', 'track', 'wbr'])
 
 deprecated_tags = frozenset([
     'applet', 'basefont', 'center', 'dir', 'font', 'isindex',
@@ -25,6 +23,8 @@ link_attrs = frozenset([
     'usemap',
     # Not standard:
     'dynsrc', 'lowsrc',
+    # HTML5 formaction
+    'formaction'
     ])
 
 # Not in the HTML 4 spec:
@@ -47,7 +47,23 @@ safe_attrs = frozenset([
     'multiple', 'name', 'nohref', 'noshade', 'nowrap', 'prompt', 'readonly',
     'rel', 'rev', 'rows', 'rowspan', 'rules', 'scope', 'selected', 'shape',
     'size', 'span', 'src', 'start', 'summary', 'tabindex', 'target', 'title',
-    'type', 'usemap', 'valign', 'value', 'vspace', 'width'])
+    'type', 'usemap', 'valign', 'value', 'vspace', 'width',
+    # ARIA attributes from https://www.w3.org/TR/wai-aria-1.3/
+    'aria-activedescendant', 'aria-atomic', 'aria-autocomplete',
+    'aria-braillelabel', 'aria-brailleroledescription', 'aria-busy',
+    'aria-checked', 'aria-colcount', 'aria-colindex', 'aria-colindextext',
+    'aria-colspan', 'aria-controls', 'aria-current', 'aria-describedby',
+    'aria-description', 'aria-details', 'aria-disabled', 'aria-dropeffect',
+    'aria-errormessage', 'aria-expanded', 'aria-flowto', 'aria-grabbed',
+    'aria-haspopup', 'aria-hidden', 'aria-invalid', 'aria-keyshortcuts',
+    'aria-label', 'aria-labelledby', 'aria-level', 'aria-live', 'aria-modal',
+    'aria-multiline', 'aria-multiselectable', 'aria-orientation', 'aria-owns',
+    'aria-placeholder', 'aria-posinset', 'aria-pressed', 'aria-readonly',
+    'aria-relevant', 'aria-required', 'aria-roledescription', 'aria-rowcount',
+    'aria-rowindex', 'aria-rowindextext', 'aria-rowspan', 'aria-selected',
+    'aria-setsize', 'aria-sort', 'aria-valuemax', 'aria-valuemin',
+    'aria-valuenow', 'aria-valuetext', 'role',
+    ])
 
 # From http://htmlhelp.com/reference/html40/olist.html
 top_level_tags = frozenset([
@@ -117,10 +133,19 @@ font_style_tags = frozenset([
 frame_tags = frozenset([
     'frameset', 'frame', 'noframes',
     ])
+    
+html5_tags = frozenset([
+    'article', 'aside', 'audio', 'canvas', 'command', 'datalist',
+    'details', 'embed', 'figcaption', 'figure', 'footer', 'header',
+    'hgroup', 'keygen', 'mark', 'math', 'meter', 'nav', 'output',
+    'progress', 'rp', 'rt', 'ruby', 'section', 'source', 'summary',
+    'svg', 'time', 'track', 'video', 'wbr'
+    ])
 
 # These tags aren't standard
 nonstandard_tags = frozenset(['blink', 'marquee'])
 
+
 tags = (top_level_tags | head_tags | general_block_tags | list_tags
         | table_tags | form_tags | special_inline_tags | phrase_tags
-        | font_style_tags | nonstandard_tags)
+        | font_style_tags | nonstandard_tags | html5_tags)

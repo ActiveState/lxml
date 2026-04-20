@@ -29,8 +29,8 @@ attribute matches any and all attributes.
 
 When a match fails, the reformatted example and gotten text is
 displayed (indented), and a rough diff-like output is given.  Anything
-marked with ``-`` is in the output but wasn't supposed to be, and
-similarly ``+`` means its in the example but wasn't in the output.
+marked with ``+`` is in the output but wasn't supposed to be, and
+similarly ``-`` means its in the example but wasn't in the output.
 
 You can disable parsing on one line with ``# doctest:+NOPARSE_MARKUP``
 """
@@ -39,17 +39,13 @@ from lxml import etree
 import sys
 import re
 import doctest
-import cgi
+try:
+    from html import escape as html_escape
+except ImportError:
+    from cgi import escape as html_escape
 
 __all__ = ['PARSE_HTML', 'PARSE_XML', 'NOPARSE_MARKUP', 'LXMLOutputChecker',
            'LHTMLOutputChecker', 'install', 'temp_install']
-
-try:
-    _basestring = basestring
-except NameError:
-    _basestring = (str, bytes)
-
-_IS_PYTHON_3 = sys.version_info[0] >= 3
 
 PARSE_HTML = doctest.register_optionflag('PARSE_HTML')
 PARSE_XML = doctest.register_optionflag('PARSE_XML')
@@ -171,8 +167,8 @@ class LXMLOutputChecker(OutputChecker):
     def tag_compare(self, want, got):
         if want == 'any':
             return True
-        if (not isinstance(want, _basestring)
-            or not isinstance(got, _basestring)):
+        if (not isinstance(want, (str, bytes))
+                or not isinstance(got, (str, bytes))):
             return want == got
         want = want or ''
         got = got or ''
@@ -206,13 +202,12 @@ class LXMLOutputChecker(OutputChecker):
             else:
                 return value
         html = parser is html_fromstring
-        diff_parts = []
-        diff_parts.append('Expected:')
-        diff_parts.append(self.format_doc(want_doc, html, 2))
-        diff_parts.append('Got:')
-        diff_parts.append(self.format_doc(got_doc, html, 2))
-        diff_parts.append('Diff:')
-        diff_parts.append(self.collect_diff(want_doc, got_doc, html, 2))
+        diff_parts = ['Expected:',
+                      self.format_doc(want_doc, html, 2),
+                      'Got:',
+                      self.format_doc(got_doc, html, 2),
+                      'Diff:',
+                      self.collect_diff(want_doc, got_doc, html, 2)]
         return '\n'.join(diff_parts)
 
     def html_empty_tag(self, el, html=True):
@@ -265,7 +260,7 @@ class LXMLOutputChecker(OutputChecker):
             return ''
         if strip:
             text = text.strip()
-        return cgi.escape(text, 1)
+        return html_escape(text, 1)
 
     def format_tag(self, el):
         attrs = []
@@ -306,10 +301,10 @@ class LXMLOutputChecker(OutputChecker):
         got_children = list(got)
         while want_children or got_children:
             if not want_children:
-                parts.append(self.format_doc(got_children.pop(0), html, indent+2, '-'))
+                parts.append(self.format_doc(got_children.pop(0), html, indent+2, '+'))
                 continue
             if not got_children:
-                parts.append(self.format_doc(want_children.pop(0), html, indent+2, '+'))
+                parts.append(self.format_doc(want_children.pop(0), html, indent+2, '-'))
                 continue
             parts.append(self.collect_diff(
                 want_children.pop(0), got_children.pop(0), html, indent+2))
@@ -331,10 +326,10 @@ class LXMLOutputChecker(OutputChecker):
         any = want.tag == 'any' or 'any' in want.attrib
         for name, value in sorted(got.attrib.items()):
             if name not in want.attrib and not any:
-                attrs.append('-%s="%s"' % (name, self.format_text(value, False)))
+                attrs.append('+%s="%s"' % (name, self.format_text(value, False)))
             else:
                 if name in want.attrib:
-                    text = self.collect_diff_text(value, want.attrib[name], False)
+                    text = self.collect_diff_text(want.attrib[name], value, False)
                 else:
                     text = self.format_text(value, False)
                 attrs.append('%s="%s"' % (name, text))
@@ -342,7 +337,7 @@ class LXMLOutputChecker(OutputChecker):
             for name, value in sorted(want.attrib.items()):
                 if name in got.attrib:
                     continue
-                attrs.append('+%s="%s"' % (name, self.format_text(value, False)))
+                attrs.append('-%s="%s"' % (name, self.format_text(value, False)))
         if attrs:
             tag = '<%s %s>' % (tag, ' '.join(attrs))
         else:
@@ -406,12 +401,8 @@ def temp_install(html=False, del_module=None):
     # __record_outcome to be run, which signals the end of the __run
     # method, at which point we restore the previous check_output
     # implementation.
-    if _IS_PYTHON_3:
-        check_func = frame.f_locals['check'].__func__
-        checker_check_func = checker.check_output.__func__
-    else:
-        check_func = frame.f_locals['check'].im_func
-        checker_check_func = checker.check_output.im_func
+    check_func = frame.f_locals['check'].__func__
+    checker_check_func = checker.check_output.__func__
     # Because we can't patch up func_globals, this is the only global
     # in check_output that we care about:
     doctest.etree = etree
@@ -419,7 +410,7 @@ def temp_install(html=False, del_module=None):
                     check_func, checker_check_func,
                     del_module)
 
-class _RestoreChecker(object):
+class _RestoreChecker:
     def __init__(self, dt_self, old_checker, new_checker, check_func, clone_func,
                  del_module):
         self.dt_self = dt_self
@@ -432,19 +423,11 @@ class _RestoreChecker(object):
         self.install_clone()
         self.install_dt_self()
     def install_clone(self):
-        if _IS_PYTHON_3:
-            self.func_code = self.check_func.__code__
-            self.func_globals = self.check_func.__globals__
-            self.check_func.__code__ = self.clone_func.__code__
-        else:
-            self.func_code = self.check_func.func_code
-            self.func_globals = self.check_func.func_globals
-            self.check_func.func_code = self.clone_func.func_code
+        self.func_code = self.check_func.__code__
+        self.func_globals = self.check_func.__globals__
+        self.check_func.__code__ = self.clone_func.__code__
     def uninstall_clone(self):
-        if _IS_PYTHON_3:
-            self.check_func.__code__ = self.func_code
-        else:
-            self.check_func.func_code = self.func_code
+        self.check_func.__code__ = self.func_code
     def install_dt_self(self):
         self.prev_func = self.dt_self._DocTestRunner__record_outcome
         self.dt_self._DocTestRunner__record_outcome = self

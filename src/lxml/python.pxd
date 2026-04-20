@@ -1,26 +1,59 @@
-from cstd cimport FILE
+from libc cimport stdio
+from libc.string cimport const_char
 cimport cython
 
+
 cdef extern from "Python.h":
+    """
+    #if defined(Py_LIMITED_API)
+      #define LXML_IN_LIMITED_API 1
+    #else
+      #define LXML_IN_LIMITED_API 0
+    #endif
+
+    #if defined(Py_LIMITED_API) || PY_VERSION_HEX >= 0x030C0000
+      #undef PyUnicode_IS_READY
+      #define PyUnicode_IS_READY(s)  (1)
+      #undef PyUnicode_READY
+      #define PyUnicode_READY(s)  (0)
+      #undef PyUnicode_AS_DATA
+      #define PyUnicode_AS_DATA(s)  (0)
+      #undef PyUnicode_GET_DATA_SIZE
+      #define PyUnicode_GET_DATA_SIZE(s)  (0)
+      #undef PyUnicode_GET_SIZE
+      #define PyUnicode_GET_SIZE(s)  (0)
+    #endif
+
+    #if defined(Py_LIMITED_API)
+      #undef PyUnicode_MAX_CHAR_VALUE
+      #define PyUnicode_MAX_CHAR_VALUE(s)  (0)
+      #undef PyUnicode_GET_LENGTH
+      #define PyUnicode_GET_LENGTH(s)  (0)
+      #undef PyUnicode_KIND
+      #define PyUnicode_KIND(s)  (0)
+      #undef PyUnicode_DATA
+      #define PyUnicode_DATA(s)  (0)
+    #endif
+    """
+
     ctypedef struct PyObject
-    ctypedef struct PyThreadState
-    cdef int INT_MAX
-    cdef int PY_SSIZE_T_MAX
-    cdef int PY_VERSION_HEX
+    cdef const Py_ssize_t PY_SSIZE_T_MIN
+    cdef const Py_ssize_t PY_SSIZE_T_MAX
+    cdef const int PY_VERSION_HEX
+    cdef const bint IN_LIMITED_API "LXML_IN_LIMITED_API"
 
     cdef void Py_INCREF(object o)
     cdef void Py_DECREF(object o)
     cdef void Py_XDECREF(PyObject* o)
 
-    cdef FILE* PyFile_AsFile(object p)
+    cdef stdio.FILE* PyFile_AsFile(object p)
 
-    cdef bint PyUnicode_Check(object obj)
-    cdef bint PyUnicode_CheckExact(object obj)
-    cdef bint PyBytes_Check(object obj)
-    cdef bint PyBytes_CheckExact(object obj)
+    # PEP 393
+    cdef bint PyUnicode_IS_READY(object u)
+    cdef Py_ssize_t PyUnicode_GET_LENGTH(object u)
+    cdef int PyUnicode_KIND(object u)
+    cdef void* PyUnicode_DATA(object u)
 
-    cdef cython.unicode PyUnicode_FromEncodedObject(object s, char* encoding,
-                                                    char* errors)
     cdef bytes PyUnicode_AsEncodedString(object u, char* encoding,
                                          char* errors)
     cdef cython.unicode PyUnicode_FromFormat(char* format, ...) # Python 3
@@ -28,17 +61,18 @@ cdef extern from "Python.h":
                                          char* encoding, char* errors)
     cdef cython.unicode PyUnicode_DecodeUTF8(char* s, Py_ssize_t size, char* errors)
     cdef cython.unicode PyUnicode_DecodeLatin1(char* s, Py_ssize_t size, char* errors)
+    cdef object PyUnicode_RichCompare(object o1, object o2, int op)
     cdef bytes PyUnicode_AsUTF8String(object ustring)
     cdef bytes PyUnicode_AsASCIIString(object ustring)
     cdef char* PyUnicode_AS_DATA(object ustring)
     cdef Py_ssize_t PyUnicode_GET_DATA_SIZE(object ustring)
     cdef Py_ssize_t PyUnicode_GET_SIZE(object ustring)
+    cdef Py_UCS4 PyUnicode_MAX_CHAR_VALUE(object ustring)
     cdef bytes PyBytes_FromStringAndSize(char* s, Py_ssize_t size)
     cdef bytes PyBytes_FromFormat(char* format, ...)
     cdef Py_ssize_t PyBytes_GET_SIZE(object s)
 
     cdef object PyNumber_Int(object value)
-    cdef Py_ssize_t PyInt_AsSsize_t(object value)
 
     cdef Py_ssize_t PyTuple_GET_SIZE(object t)
     cdef object PyTuple_GET_ITEM(object o, Py_ssize_t pos)
@@ -49,70 +83,55 @@ cdef extern from "Python.h":
     cdef void PyList_SET_ITEM(object l, Py_ssize_t index, object value)
     cdef int PyList_Insert(object l, Py_ssize_t index, object o) except -1
     cdef object PyList_AsTuple(object l)
-    cdef void PyList_Clear(object l)
 
-#    cdef int PyDict_SetItemString(object d, char* key, object value) except -1
-#    cdef int PyDict_SetItem(object d, object key, object value) except -1
     cdef PyObject* PyDict_GetItemString(object d, char* key)
     cdef PyObject* PyDict_GetItem(object d, object key)
-#    cdef int PyDict_DelItem(object d, object key) except -1
-    cdef void PyDict_Clear(object d)
-#    cdef object PyDict_Copy(object d)
     cdef object PyDictProxy_New(object d)
-    # cdef int PyDict_Contains(object d, object key) except -1 # Python 2.4+
-    cdef Py_ssize_t PyDict_Size(object d)
     cdef object PySequence_List(object o)
     cdef object PySequence_Tuple(object o)
 
-    cdef bint PyDict_Check(object instance)
-    cdef bint PyList_Check(object instance)
-    cdef bint PyTuple_Check(object instance)
     cdef bint PyNumber_Check(object instance)
-    cdef bint PyBool_Check(object instance)
     cdef bint PySequence_Check(object instance)
     cdef bint PyType_Check(object instance)
     cdef bint PyTuple_CheckExact(object instance)
-    cdef bint PySlice_Check(object instance)
+    cdef bint PyIndex_Check(object instance)
 
-    cdef int _PyEval_SliceIndex(object value, Py_ssize_t* index) except 0
-    cdef int PySlice_GetIndicesEx(slice slice, Py_ssize_t length,
-                                  Py_ssize_t *start, Py_ssize_t *stop, Py_ssize_t *step,
-                                  Py_ssize_t *slicelength) except -1
+    cdef int PySlice_GetIndicesEx(
+            object slice, Py_ssize_t length,
+            Py_ssize_t *start, Py_ssize_t *stop, Py_ssize_t *step,
+            Py_ssize_t *slicelength) except -1
 
-    cdef int PyObject_SetAttr(object o, object name, object value)
     cdef object PyObject_RichCompare(object o1, object o2, int op)
-    cdef int PyObject_RichCompareBool(object o1, object o2, int op)
 
-#    object PyWeakref_NewRef(object ob, PyObject* callback)
-#    PyObject* PyWeakref_GET_OBJECT(object ref)
+    PyObject* PyWeakref_NewRef(object ob, PyObject* callback) except NULL  # used for PyPy only
+    object PyWeakref_LockObject(PyObject* ob) # PyPy only
 
     cdef void* PyMem_Malloc(size_t size)
     cdef void* PyMem_Realloc(void* p, size_t size)
     cdef void PyMem_Free(void* p)
 
-    # these two always return NULL to pass on the exception
-    cdef object PyErr_NoMemory()
+    # always returns NULL to pass on the exception
     cdef object PyErr_SetFromErrno(object type)
+    cdef void PyException_SetContext(object exception, object context)
+    cdef PyObject* PyException_GetContext(object exception)
 
-    cdef PyThreadState* PyEval_SaveThread()
-    cdef void PyEval_RestoreThread(PyThreadState* state)
     cdef PyObject* PyThreadState_GetDict()
 
     # some handy functions
-    cdef int callable "PyCallable_Check" (object obj)
-    cdef char* _cstr "PyBytes_AS_STRING" (object s)
+    cdef const char* _cstr "__Pyx_PyBytes_AsString" (object s)
+    cdef const char* __cstr "__Pyx_PyBytes_AsString" (PyObject* s)
 
     # Py_buffer related flags
-    cdef int PyBUF_SIMPLE
-    cdef int PyBUF_WRITABLE
-    cdef int PyBUF_LOCK
-    cdef int PyBUF_FORMAT
-    cdef int PyBUF_ND
-    cdef int PyBUF_STRIDES
-    cdef int PyBUF_C_CONTIGUOUS
-    cdef int PyBUF_F_CONTIGUOUS
-    cdef int PyBUF_ANY_CONTIGUOUS
-    cdef int PyBUF_INDIRECT
+    cdef const int PyBUF_SIMPLE
+    cdef const int PyBUF_WRITABLE
+    cdef const int PyBUF_LOCK
+    cdef const int PyBUF_FORMAT
+    cdef const int PyBUF_ND
+    cdef const int PyBUF_STRIDES
+    cdef const int PyBUF_C_CONTIGUOUS
+    cdef const int PyBUF_F_CONTIGUOUS
+    cdef const int PyBUF_ANY_CONTIGUOUS
+    cdef const int PyBUF_INDIRECT
 
 cdef extern from "pythread.h":
     ctypedef void* PyThread_type_lock
@@ -127,7 +146,32 @@ cdef extern from "pythread.h":
         NOWAIT_LOCK
 
 cdef extern from "etree_defs.h": # redefines some functions as macros
+    cdef void* lxml_malloc(size_t count, size_t item_size)
+    cdef void* lxml_realloc(void* mem, size_t count, size_t item_size)
+    cdef void lxml_free(void* mem)
+    cdef void* lxml_unpack_xmldoc_capsule(object capsule, bint* is_owned) except? NULL
     cdef bint _isString(object obj)
-    cdef char* _fqtypename(object t)
-    cdef object PY_NEW(object t)
-    cdef bint IS_PYTHON3
+    cdef str _typename "__lxml_typename" (object t)
+    cdef str _fqtypename "__lxml_fqtypename" (object t)
+    cdef bint IS_PYPY
+    cdef object PyOS_FSPath(object obj)
+
+
+cdef extern from *:
+    """
+    #ifndef PY_BIG_ENDIAN
+
+    #ifdef _MSC_VER
+    typedef unsigned __int32 uint32_t;
+    #else
+    #include <stdint.h>
+    #endif
+
+    static CYTHON_INLINE int _lx__is_big_endian(void) {
+        union {uint32_t i; char c[4];} x = {0x01020304};
+        return x.c[0] == 1;
+    }
+    #define PY_BIG_ENDIAN _lx__is_big_endian()
+    #endif
+    """
+    cdef bint PY_BIG_ENDIAN  # defined in later Py3.x versions

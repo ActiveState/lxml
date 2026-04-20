@@ -1,3 +1,5 @@
+# cython: language_level=3
+
 #
 # ElementTree
 # $Id: ElementPath.py 3375 2008-02-13 08:05:08Z fredrik $
@@ -53,6 +55,7 @@
 # you, if needed.
 ##
 
+
 import re
 
 xpath_tokenizer_re = re.compile(
@@ -60,41 +63,51 @@ xpath_tokenizer_re = re.compile(
     "'[^']*'|\"[^\"]*\"|"
     "::|"
     "//?|"
-    "\.\.|"
-    "\(\)|"
-    "[/.*:\[\]\(\)@=])|"
-    "((?:\{[^}]+\})?[^/\[\]\(\)@=\s]+)|"
-    "\s+"
+    r"\.\.|"
+    r"\(\)|"
+    r"[/.*:\[\]\(\)@=])|"
+    r"((?:\{[^}]+\})?[^/\[\]\(\)@=\s]+)|"
+    r"\s+"
     )
 
-def xpath_tokenizer(pattern, namespaces=None):
+def xpath_tokenizer(pattern, namespaces=None, with_prefixes=True):
+    # ElementTree uses '', lxml used None originally.
+    default_namespace = (namespaces.get(None) or namespaces.get('')) if namespaces else None
+    parsing_attribute = False
     for token in xpath_tokenizer_re.findall(pattern):
-        tag = token[1]
-        if tag and tag[0] != "{" and ":" in tag:
-            try:
+        ttype, tag = token
+        if tag and tag[0] != "{":
+            if ":" in tag and with_prefixes:
                 prefix, uri = tag.split(":", 1)
-                if not namespaces:
-                    raise KeyError
-                yield token[0], "{%s}%s" % (namespaces[prefix], uri)
-            except KeyError:
-                raise SyntaxError("prefix %r not found in prefix map" % prefix)
+                try:
+                    if not namespaces:
+                        raise KeyError
+                    yield ttype, "{%s}%s" % (namespaces[prefix], uri)
+                except KeyError:
+                    raise SyntaxError("prefix %r not found in prefix map" % prefix)
+            elif tag.isdecimal():
+                yield token  # index
+            elif default_namespace and not parsing_attribute:
+                yield ttype, "{%s}%s" % (default_namespace, tag)
+            else:
+                yield token
+            parsing_attribute = False
         else:
             yield token
+            parsing_attribute = ttype == '@'
 
 
 def prepare_child(next, token):
     tag = token[1]
     def select(result):
         for elem in result:
-            for e in elem.iterchildren(tag):
-                yield e
+            yield from elem.iterchildren(tag)
     return select
 
 def prepare_star(next, token):
     def select(result):
         for elem in result:
-            for e in elem:
-                yield e
+            yield from elem.iterchildren('*')
     return select
 
 def prepare_self(next, token):
@@ -112,8 +125,7 @@ def prepare_descendant(next, token):
         raise SyntaxError("invalid descendant")
     def select(result):
         for elem in result:
-            for e in elem.iterdescendants(tag):
-                yield e
+            yield from elem.iterdescendants(tag)
     return select
 
 def prepare_parent(next, token):
@@ -128,17 +140,20 @@ def prepare_predicate(next, token):
     # FIXME: replace with real parser!!! refs:
     # http://effbot.org/zone/simple-iterator-parser.htm
     # http://javascript.crockford.com/tdop/tdop.html
-    signature = []
+    signature = ''
     predicate = []
     while 1:
         token = next()
         if token[0] == "]":
             break
+        if token == ('', ''):
+            # ignore whitespace
+            continue
         if token[0] and token[0][:1] in "'\"":
             token = "'", token[0][1:-1]
-        signature.append(token[0] or "-")
+        signature += token[0] or "-"
         predicate.append(token[1])
-    signature = "".join(signature)
+
     # use signature to determine predicate type
     if signature == "@-":
         # [@attribute] predicate
@@ -157,7 +172,7 @@ def prepare_predicate(next, token):
                 if elem.get(key) == value:
                     yield elem
         return select
-    if signature == "-" and not re.match("\d+$", predicate[0]):
+    if signature == "-" and not re.match(r"-?\d+$", predicate[0]):
         # [tag]
         tag = predicate[0]
         def select(result):
@@ -166,21 +181,34 @@ def prepare_predicate(next, token):
                     yield elem
                     break
         return select
-    if signature == "-='" and not re.match("\d+$", predicate[0]):
-        # [tag='value']
+    if signature == ".='" or (signature == "-='" and not re.match(r"-?\d+$", predicate[0])):
+        # [.='value'] or [tag='value']
         tag = predicate[0]
         value = predicate[-1]
-        def select(result):
-            for elem in result:
-                for e in elem.iterchildren(tag):
-                    if "".join(e.itertext()) == value:
+        if tag:
+            def select(result):
+                for elem in result:
+                    for e in elem.iterchildren(tag):
+                        if "".join(e.itertext()) == value:
+                            yield elem
+                            break
+        else:
+            def select(result):
+                for elem in result:
+                    if "".join(elem.itertext()) == value:
                         yield elem
-                        break
         return select
     if signature == "-" or signature == "-()" or signature == "-()-":
         # [index] or [last()] or [last()-index]
         if signature == "-":
+            # [index]
             index = int(predicate[0]) - 1
+            if index < 0:
+                if index == -1:
+                    raise SyntaxError(
+                        "indices in path predicates are 1-based, not 0-based")
+                else:
+                    raise SyntaxError("path index >= 1 expected")
         else:
             if predicate[0] != "last":
                 raise SyntaxError("unsupported function")
@@ -213,18 +241,35 @@ ops = {
     "..": prepare_parent,
     "//": prepare_descendant,
     "[": prepare_predicate,
-    }
+}
 
-_cache = {}
 
 # --------------------------------------------------------------------
 
-def _build_path_iterator(path, namespaces):
-    # compile selector pattern
+_cache = {}
+
+
+def _build_path_iterator(path, namespaces, with_prefixes=True):
+    """compile selector pattern"""
     if path[-1:] == "/":
-        path = path + "*" # implicit all (FIXME: keep this?)
+        path += "*"  # implicit all (FIXME: keep this?)
+
+    cache_key = (path,)
+    if namespaces:
+        # lxml originally used None for the default namespace but ElementTree uses the
+        # more convenient (all-strings-dict) empty string, so we support both here,
+        # preferring the more convenient '', as long as they aren't ambiguous.
+        if None in namespaces:
+            if '' in namespaces and namespaces[None] != namespaces['']:
+                raise ValueError("Ambiguous default namespace provided: %r versus %r" % (
+                    namespaces[None], namespaces['']))
+            cache_key += (namespaces[None],) + tuple(sorted(
+                item for item in namespaces.items() if item[0] is not None))
+        else:
+            cache_key += tuple(sorted(namespaces.items()))
+
     try:
-        return _cache[path]
+        return _cache[cache_key]
     except KeyError:
         pass
     if len(_cache) > 100:
@@ -232,13 +277,16 @@ def _build_path_iterator(path, namespaces):
 
     if path[:1] == "/":
         raise SyntaxError("cannot use absolute path on element")
-    stream = iter(xpath_tokenizer(path, namespaces))
+    stream = iter(xpath_tokenizer(path, namespaces, with_prefixes=with_prefixes))
     try:
         _next = stream.next
     except AttributeError:
         # Python 3
         _next = stream.__next__
-    token = _next()
+    try:
+        token = _next()
+    except StopIteration:
+        raise SyntaxError("empty path expression")
     selector = []
     while 1:
         try:
@@ -251,45 +299,44 @@ def _build_path_iterator(path, namespaces):
                 token = _next()
         except StopIteration:
             break
-    _cache[path] = selector
+    _cache[cache_key] = selector
     return selector
+
 
 ##
 # Iterate over the matching nodes
 
-def iterfind(elem, path, namespaces=None):
-    selector = _build_path_iterator(path, namespaces)
+def iterfind(elem, path, namespaces=None, with_prefixes=True):
+    selector = _build_path_iterator(path, namespaces, with_prefixes=with_prefixes)
     result = iter((elem,))
     for select in selector:
         result = select(result)
     return result
 
+
 ##
 # Find first matching object.
 
-def find(elem, path, namespaces=None):
-    it = iterfind(elem, path, namespaces)
+def find(elem, path, namespaces=None, with_prefixes=True):
+    it = iterfind(elem, path, namespaces, with_prefixes=with_prefixes)
     try:
-        try:
-            _next = it.next
-        except AttributeError:
-            return next(it)
-        else:
-            return _next()
+        return next(it)
     except StopIteration:
         return None
+
 
 ##
 # Find all matching objects.
 
-def findall(elem, path, namespaces=None):
+def findall(elem, path, namespaces=None, with_prefixes=True):
     return list(iterfind(elem, path, namespaces))
+
 
 ##
 # Find text for first matching object.
 
-def findtext(elem, path, default=None, namespaces=None):
-    el = find(elem, path, namespaces)
+def findtext(elem, path, default=None, namespaces=None, with_prefixes=True):
+    el = find(elem, path, namespaces, with_prefixes=with_prefixes)
     if el is None:
         return default
     else:

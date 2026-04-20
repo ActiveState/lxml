@@ -16,9 +16,9 @@ provides the Element interface for subclasses:
   >>> from lxml import etree
 
   >>> class honk(etree.ElementBase):
+  ...    @property
   ...    def honking(self):
   ...       return self.get('honking') == 'true'
-  ...    honking = property(honking)
 
 This defines a new Element class ``honk`` with a property ``honking``.
 
@@ -37,10 +37,6 @@ custom Element classes.
      3.5  Tree based element class lookup in Python
    4  Generating XML with custom classes
    5  Implementing namespaces
-
-..
-  >>> try: _ = unicode
-  ... except NameError: unicode = str
 
 
 Background on Element proxies
@@ -64,7 +60,7 @@ Element initialization
 ======================
 
 There is one thing to know up front.  Element classes *must not* have
-an ``__init___`` or ``__new__`` method.  There should not be any
+an ``__init__`` or ``__new__`` method.  There should not be any
 internal state either, except for the data stored in the underlying
 XML tree.  Element instances are created and garbage collected at
 need, so there is normally no way to predict when and how often a
@@ -102,7 +98,7 @@ cache manually up to date if the tree changes, which can get tricky in
 cases.
 
 For proxy initialisation, ElementBase classes have an ``_init()``
-method that can be overridden, as oppose to the normal ``__init__()``
+method that can be overridden, as opposed to the normal ``__init__()``
 method.  It can be used to modify the XML tree, e.g. to construct
 special children or verify and update attributes.
 
@@ -124,8 +120,8 @@ The semantics of ``_init()`` are as follows:
   value or by removing or adding a specific child node and then verifying this
   before running through the init process.
 
-* Any exceptions raised in ``_init()`` will be propagated throught the API
-  call that lead to the creation of the Element.  So be careful with the code
+* Any exceptions raised in ``_init()`` will be propagated through the API
+  call that led to the creation of the Element.  So be careful with the code
   you write here as its exceptions may turn up in various unexpected places.
 
 
@@ -215,7 +211,9 @@ Default class lookup
 
 This is the most simple lookup mechanism.  It always returns the default
 element class.  Consequently, no further fallbacks are supported, but this
-scheme is a nice fallback for other custom lookup mechanisms.
+scheme is a nice fallback for other custom lookup mechanisms.  Specifically,
+it also handles comments and processing instructions, which are easy to
+forget about when mapping proxies to classes.
 
 Usage:
 
@@ -252,6 +250,13 @@ the constructor.  While it accepts classes for ``element``, ``comment`` and
   >>> el.honking
   True
 
+  >>> root = etree.fromstring(
+  ...     '<root honking="true"><!--comment--></root>', parser)
+  >>> root.honking
+  True
+  >>> print(root[0].text)
+  comment
+
 
 Namespace class lookup
 ----------------------
@@ -281,6 +286,13 @@ desired fallback lookup scheme to the constructor:
   >>> lookup = etree.ElementNamespaceClassLookup(fallback)
   >>> parser.set_element_class_lookup(lookup)
 
+  >>> root = etree.fromstring(
+  ...     '<root honking="true"><!--comment--></root>', parser)
+  >>> root.honking
+  True
+  >>> print(root[0].text)
+  comment
+
 
 Attribute based lookup
 ----------------------
@@ -298,9 +310,26 @@ value in a dictionary.  It is set up as follows:
   >>> parser = etree.XMLParser()
   >>> parser.set_element_class_lookup(lookup)
 
-This class uses its fallback if the attribute is not found or its value is not
-in the mapping.  Normally, the default class lookup is used here.  If you want
-to use the namespace lookup, for example, you can use this code:
+And here is how to use it:
+
+.. sourcecode:: pycon
+
+  >>> xml = '<a id="123"><b id="1234"/><b id="1234" honking="true"/></a>'
+  >>> a = etree.fromstring(xml, parser)
+
+  >>> a.honking       # id does not match !
+  Traceback (most recent call last):
+  AttributeError: 'lxml.etree._Element' object has no attribute 'honking'
+
+  >>> a[0].honking
+  False
+  >>> a[1].honking
+  True
+
+This lookup scheme uses its fallback if the attribute is not found or
+its value is not in the mapping.  Normally, the default class lookup
+is used here.  If you want to use the namespace lookup, for example,
+you can use this code:
 
 .. sourcecode:: pycon
 
@@ -321,10 +350,20 @@ basis.  It allows you to implement a custom lookup scheme in a subclass:
 
   >>> class MyLookup(etree.CustomElementClassLookup):
   ...     def lookup(self, node_type, document, namespace, name):
-  ...         return honk # be a bit more selective here ...
+  ...         if node_type == 'element':
+  ...             return honk  # be a bit more selective here ...
+  ...         else:
+  ...             return None  # pass on to (default) fallback
 
   >>> parser = etree.XMLParser()
   >>> parser.set_element_class_lookup(MyLookup())
+
+  >>> root = etree.fromstring(
+  ...     '<root honking="true"><!--comment--></root>', parser)
+  >>> root.honking
+  True
+  >>> print(root[0].text)
+  comment
 
 The ``.lookup()`` method must return either None (which triggers the
 fallback mechanism) or a subclass of ``lxml.etree.ElementBase``.  It
@@ -343,7 +382,7 @@ the elements in the tree have been instantiated as Python Element
 proxies.
 
 Luckily, there is a way to do this.  The ``PythonElementClassLookup``
-works similar to the custom lookup scheme:
+works similarly to the custom lookup scheme:
 
 .. sourcecode:: pycon
 
@@ -355,7 +394,7 @@ works similar to the custom lookup scheme:
   >>> parser.set_element_class_lookup(MyLookup())
 
 As before, the first argument to the ``lookup()`` method is the opaque
-document instance that contains the Element.  The second arguments is a
+document instance that contains the Element.  The second argument is a
 lightweight Element proxy implementation that is only valid during the lookup.
 Do not try to keep a reference to it.  Once the lookup is finished, the proxy
 will become invalid.  You will get an ``AssertionError`` if you access any of
@@ -387,7 +426,7 @@ this class will simply create a new Element:
 
 .. sourcecode:: pycon
 
-  >>> el = honk(honking = 'true')
+  >>> el = honk(honking='true')
   >>> el.tag
   'honk'
   >>> el.honking
@@ -410,7 +449,7 @@ You can use custom Element classes to quickly create XML fragments:
 
   >>> el = hale( "some ", honk(honking = 'true'), bopp, " text" )
 
-  >>> print(etree.tostring(el, encoding=unicode))
+  >>> print(etree.tostring(el, encoding='unicode'))
   <hale>some <honk honking="true"/><bopp/> text</hale>
 
 
@@ -439,7 +478,7 @@ name ``honk``:
 
 If you have many Element classes declared in one module, and they are
 all named like the elements they create, you can simply use
-``namespace.update(vars())`` at the end of your module to declare them
+``namespace.update(globals())`` at the end of your module to declare them
 automatically.  The implementation is smart enough to ignore
 everything that is not an Element class.
 
@@ -466,7 +505,7 @@ Essentially, what this allows you to do, is to give Elements a custom API
 based on their namespace and tag name.
 
 A somewhat related topic are `extension functions`_ which use a similar
-mechanism for registering extension functions in XPath and XSLT.
+mechanism for registering Python functions for use in XPath and XSLT.
 
 .. _`extension functions`: extensions.html
 
@@ -477,21 +516,25 @@ implementation:
 
 .. sourcecode:: pycon
 
-  >>> xml = '<honk xmlns="http://hui.de/honk" honking="true"><bla/></honk>'
+  >>> xml = ('<honk xmlns="http://hui.de/honk" honking="true">'
+  ...        '<bla/><!--comment-->'
+  ...        '</honk>')
   >>> honk_element = etree.XML(xml, parser)
   >>> print(honk_element.honking)
   True
   >>> print(honk_element[0].honking)
   Traceback (most recent call last):
-  ...
+    ...
   AttributeError: 'lxml.etree._Element' object has no attribute 'honking'
+  >>> print(honk_element[1].text)
+  comment
 
 You can therefore provide one implementation per element name in each
 namespace and have lxml select the right one on the fly.  If you want one
 element implementation per namespace (ignoring the element name) or prefer
 having a common class for most elements except a few, you can specify a
 default implementation for an entire namespace by registering that class with
-the empty element name (None).
+the empty element name (``None``).
 
 You may consider following an object oriented approach here.  If you build a
 class hierarchy of element classes, you can also implement a base class for a
@@ -503,21 +546,23 @@ can just pass None as an element name:
   >>> class HonkNSElement(etree.ElementBase):
   ...    def honk(self):
   ...       return "HONK"
-  >>> namespace[None] = HonkNSElement # default Element for namespace
+  >>> namespace[None] = HonkNSElement  # default Element for namespace
 
   >>> class HonkElement(HonkNSElement):
+  ...    @property
   ...    def honking(self):
   ...       return self.get('honking') == 'true'
-  ...    honking = property(honking)
-  >>> namespace['honk'] = HonkElement # Element for specific tag
+  >>> namespace['honk'] = HonkElement  # Element for specific tag
 
 Now you can rely on lxml to always return objects of type HonkNSElement or its
 subclasses for elements of this namespace:
 
 .. sourcecode:: pycon
 
-  >>> xml = '<honk xmlns="http://hui.de/honk" honking="true"><bla/></honk>'
-  >>> honk_element = etree.XML(xml, parser)
+  >>> xml = ('<honk xmlns="http://hui.de/honk" honking="true">'
+  ...        '<bla/><!--comment-->'
+  ...        '</honk>')
+  >>> honk_element = etree.fromstring(xml, parser)
 
   >>> print(type(honk_element))
   <class 'HonkElement'>
@@ -531,7 +576,42 @@ subclasses for elements of this namespace:
 
   >>> print(honk_element[0].honk())
   HONK
-  >>> print(honk_element[0].honking)
+  >>> print(honk_element[0].honking)  # doctest: +ELLIPSIS
   Traceback (most recent call last):
-  ...
-  AttributeError: 'HonkNSElement' object has no attribute 'honking'
+    ...
+  AttributeError: 'HonkNSElement' object has no attribute 'honking'...
+
+  >>> print(honk_element[1].text)  # uses fallback for non-elements
+  comment
+
+Since lxml 4.1, the registration is more conveniently done with
+class decorators.  The namespace registry object is callable with
+a name (or ``None``) as argument and can then be used as decorator.
+
+.. sourcecode:: pycon
+
+  >>> honk_elements = lookup.get_namespace('http://hui.de/honk')
+
+  >>> @honk_elements(None)
+  ... class HonkNSElement(etree.ElementBase):
+  ...    def honk(self):
+  ...       return "HONK"
+
+If the class has the same name as the tag, you can also leave out the call
+and use the blank decorator instead:
+
+.. sourcecode:: pycon
+
+  >>> @honk_elements
+  ... class honkel(HonkNSElement):
+  ...    @property
+  ...    def honking(self):
+  ...       return self.get('honking') == 'true'
+
+  >>> xml = '<honkel xmlns="http://hui.de/honk" honking="true"><bla/><!--comment--></honkel>'
+  >>> honk_element = etree.fromstring(xml, parser)
+
+  >>> print(type(honk_element))
+  <class 'honkel'>
+  >>> print(type(honk_element[0]))
+  <class 'HonkNSElement'>

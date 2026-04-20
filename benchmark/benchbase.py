@@ -1,13 +1,15 @@
-import sys, re, string, time, copy, gc
-from itertools import *
-from StringIO import StringIO
+import sys, re, string, copy, gc
+import itertools
 import time
+from contextlib import contextmanager
+from functools import partial
 
 
 TREE_FACTOR = 1 # increase tree size with '-l / '-L' cmd option
+DEFAULT_REPEAT = 9
 
 _TEXT  = "some ASCII text" * TREE_FACTOR
-_UTEXT = u"some klingon: \F8D2" * TREE_FACTOR
+_UTEXT = u"some klingon: \uF8D2" * TREE_FACTOR
 _ATTRIBUTES = {
     '{attr}test1' : _TEXT,
     '{attr}test2' : _TEXT,
@@ -89,6 +91,22 @@ def nochange(function):
     function.NO_CHANGE = True
     return function
 
+def anytree(function):
+    "Decorator for benchmarks that do not depend on the concrete tree"
+    function.ANY_TREE = True
+    return function
+
+def widetree(function):
+    "Decorator for benchmarks that use only tree 2"
+    function.TREES = "2"
+    return function
+
+def widesubtree(function):
+    "Decorator for benchmarks that use only tree 1"
+    function.TREES = "1"
+    return function
+
+
 ############################################################
 # benchmark baseclass
 ############################################################
@@ -96,7 +114,7 @@ def nochange(function):
 class SkippedTest(Exception):
     pass
 
-class TreeBenchMark(object):
+class TreeBenchMark:
     atoz = string.ascii_lowercase
     repeat100  = range(100)
     repeat500  = range(500)
@@ -186,8 +204,9 @@ class TreeBenchMark(object):
             "Element"    : self.etree.Element,
             "SubElement" : self.etree.SubElement
             }
+
         # create function object
-        exec "\n".join(output) in namespace
+        exec("\n".join(output), namespace)
         return namespace["element_factory"]
 
     def _all_trees(self):
@@ -212,7 +231,7 @@ class TreeBenchMark(object):
                 for i in range(20 * TREE_FACTOR):
                     SubElement(el, tag).tail = text
         t = current_time() - t
-        return (root, t)
+        return root, t
 
     def _setup_tree2(self, text, attributes):
         "tree with 520 * TREE_FACTOR 2nd level and 26 3rd level children"
@@ -228,7 +247,7 @@ class TreeBenchMark(object):
                 for ch2 in atoz:
                     SubElement(el, "{cdefg}%s00001" % ch2).tail = text
         t = current_time() - t
-        return (root, t)
+        return root, t
 
     def _setup_tree3(self, text, attributes):
         "tree of depth 8 + TREE_FACTOR with 3 children per node"
@@ -238,14 +257,13 @@ class TreeBenchMark(object):
         root = self.etree.Element('{abc}rootnode')
         children = [root]
         for i in range(6 + TREE_FACTOR):
-            tag_no = count().next
             children = [ SubElement(c, "{cdefg}a%05d" % (i%8), attributes)
-                         for i,c in enumerate(chain(children, children, children)) ]
+                         for i,c in enumerate(itertools.chain(children, children, children)) ]
         for child in children:
             child.text = text
             child.tail = text
         t = current_time() - t
-        return (root, t)
+        return root, t
 
     def _setup_tree4(self, text, attributes):
         "small tree with 26 2nd level and 2 3rd level children"
@@ -253,14 +271,13 @@ class TreeBenchMark(object):
         current_time = time.time
         t = current_time()
         root = self.etree.Element('{abc}rootnode')
-        children = [root]
         for ch1 in self.atoz:
             el = SubElement(root, "{abc}"+ch1*5, attributes)
             el.text = text
             SubElement(el, "{cdefg}a00001", attributes).tail = text
             SubElement(el, "{cdefg}z00000", attributes).tail = text
         t = current_time() - t
-        return (root, t)
+        return root, t
 
     def benchmarks(self):
         """Returns a list of all benchmarks.
@@ -273,29 +290,43 @@ class TreeBenchMark(object):
         for name in dir(self):
             if not name.startswith('bench_'):
                 continue
+
             method = getattr(self, name)
+
+            serialized = getattr(method, 'STRING',    False)
+            children   = getattr(method, 'CHILDREN',  False)
+            no_change  = getattr(method, 'NO_CHANGE', False)
+            any_tree   = getattr(method, 'ANY_TREE',  False)
+            tree_sets  = getattr(method, 'TREES',     None)
+
             if hasattr(method, 'LIBS') and self.lib_name not in method.LIBS:
                 method_call = None
             else:
                 method_call = method
-            if method.__doc__:
+
+            if tree_sets:
+                tree_sets = tree_sets.split()
+            elif method.__doc__:
                 tree_sets = method.__doc__.split()
             else:
                 tree_sets = ()
+
             if tree_sets:
-                tree_tuples = [ map(int, tree_set.split(','))
-                                for tree_set in tree_sets ]
+                tree_tuples = [list(map(int, tree_set.split(',')))
+                               for tree_set in tree_sets]
             else:
                 try:
-                    function = getattr(method, 'im_func', method)
                     arg_count = method.func_code.co_argcount - 1
                 except AttributeError:
-                    arg_count = 1
-                tree_tuples = self._permutations(all_trees, arg_count)
+                    try:
+                        arg_count = method.__code__.co_argcount - 1
+                    except AttributeError:
+                        arg_count = 1
 
-            serialized = getattr(method, 'STRING',   False)
-            children   = getattr(method, 'CHILDREN', False)
-            no_change  = getattr(method, 'NO_CHANGE', False)
+                if any_tree:
+                    tree_tuples = [all_trees[-arg_count:]]
+                else:
+                    tree_tuples = self._permutations(all_trees, arg_count)
 
             for tree_tuple in tree_tuples:
                 for tn in sorted(getattr(method, 'TEXT', (0,))):
@@ -326,7 +357,7 @@ class TreeBenchMark(object):
 ############################################################
 
 def buildSuites(benchmark_class, etrees, selected):
-    benchmark_suites = map(benchmark_class, etrees)
+    benchmark_suites = list(map(benchmark_class, etrees))
 
     # sorted by name and tree tuple
     benchmarks = [ sorted(b.benchmarks()) for b in benchmark_suites ]
@@ -339,92 +370,132 @@ def buildSuites(benchmark_class, etrees, selected):
                               if match(b[0]) ] ]
                        for bs in benchmarks ]
 
-    return (benchmark_suites, benchmarks)
+    return benchmark_suites, benchmarks
 
 def build_treeset_name(trees, tn, an, serialized, children):
     text = {0:'-', 1:'S', 2:'U'}[tn]
     attr = {0:'-', 1:'A'}[an]
     ser  = {True:'X', False:'T'}[serialized]
     chd  = {True:'C', False:'R'}[children]
-    return "%s%s%s%s T%s" % (text, attr, ser, chd, ',T'.join(imap(str, trees))[:6])
+    return "%s%s%s%s T%s" % (text, attr, ser, chd, ',T'.join(map(str, trees))[:6])
 
 def printSetupTimes(benchmark_suites):
-    print "Setup times for trees in seconds:"
+    print("Setup times for trees in seconds:")
     for b in benchmark_suites:
-        print "%-3s:    " % b.lib_name,
+        sys.stdout.write("%-3s:     " % b.lib_name)
         for an in (0,1):
             for tn in (0,1,2):
-                print '  %s  ' % build_treeset_name((), tn, an, False, False)[:2],
-        print
+                sys.stdout.write('  %s   ' %
+                    build_treeset_name((), tn, an, False, False)[:2])
+        print('')
         for i, tree_times in enumerate(b.setup_times):
-            print "     T%d:" % (i+1), ' '.join("%6.4f" % t for t in tree_times)
-    print
+            print("     T%d: %s" % (i+1, ' '.join("%6.4f" % t for t in tree_times)))
+    print('')
+
+
+def autorange(bench_func, min_runtime=0.2, max_number=None, timer=time.perf_counter):
+    i = 1
+    while True:
+        for j in 1, 2, 5:
+            number = i * j
+            if max_number is not None and number >= max_number:
+                return max_number
+            time_taken = bench_func(number)
+            if time_taken >= min_runtime:
+                return number
+        i *= 10
+
+
+@contextmanager
+def nogc():
+    gc.collect()
+    gc.disable()
+    try:
+        yield
+    finally:
+        gc.enable()
+
 
 def runBench(suite, method_name, method_call, tree_set, tn, an,
-             serial, children, no_change):
+             serial, children, no_change, timer=time.perf_counter, repeat=DEFAULT_REPEAT):
     if method_call is None:
         raise SkippedTest
 
-    current_time = time.time
-    call_repeat = range(10)
-
+    rebuild_trees = not no_change and not serial
     tree_builders = [ suite.tree_builder(tree, tn, an, serial, children)
                       for tree in tree_set ]
 
-    rebuild_trees = not no_change and not serial
+    def new_trees(count=range(len(tree_builders)), trees=[None] * len(tree_builders)):
+        for i in count:
+            trees[i] = tree_builders[i]()
+        return tuple(trees)
 
-    args = tuple([ build() for build in tree_builders ])
-    method_call(*args) # run once to skip setup overhead
+    if rebuild_trees:
+        def time_benchmark(loops):
+            t_all_calls = 0.0
+            for _ in range(loops):
+                run_benchmark = partial(method_call, *new_trees())
+                t_one_call = timer()
+                run_benchmark()
+                t_one_call = timer() - t_one_call
+                t_all_calls += t_one_call
+            return t_all_calls
+    else:
+        def time_benchmark(loops, run_benchmark=partial(method_call, *new_trees())):
+            _loops = range(loops)
+            t_one_call = timer()
+            for _ in _loops:
+                run_benchmark()
+            t_all_calls = timer() - t_one_call
+            return t_all_calls
+
+    time_benchmark(1)  # run once for tree warm-up
+
+    with nogc():
+        # Adjust "min_runtime" to avoid long tree rebuild times for short benchmarks.
+        inner_loops = autorange(
+            time_benchmark,
+            min_runtime=0.1 if rebuild_trees else 0.2,
+            max_number=200 if rebuild_trees else None,
+        )
 
     times = []
-    for i in range(3):
+    for _ in range(repeat):
+        with nogc():
+            t_one_call = time_benchmark(inner_loops) / inner_loops
+            times.append(1000.0 * t_one_call)  # msec
         gc.collect()
-        gc.disable()
-        t = -1
-        for i in call_repeat:
-            if rebuild_trees:
-                args = [ build() for build in tree_builders ]
-            t_one_call = current_time()
-            method_call(*args)
-            t_one_call = current_time() - t_one_call
-            if t < 0:
-                t = t_one_call
-            else:
-                t = min(t, t_one_call)
-        times.append(1000.0 * t)
-        gc.enable()
-        if rebuild_trees:
-            args = ()
-    args = ()
-    gc.collect()
     return times
 
-def runBenchmarks(benchmark_suites, benchmarks):
-    for bench_calls in izip(*benchmarks):
-        for lib, (bench, benchmark_setup) in enumerate(izip(benchmark_suites, bench_calls)):
+
+def runBenchmarks(benchmark_suites, benchmarks, repeat=DEFAULT_REPEAT):
+    for bench_calls in zip(*benchmarks):
+        for lib, (bench, benchmark_setup) in enumerate(zip(benchmark_suites, bench_calls)):
             bench_name = benchmark_setup[0]
             tree_set_name = build_treeset_name(*benchmark_setup[-6:-1])
-            print "%-3s: %-28s" % (bench.lib_name, bench_name[6:34]),
-            print "(%-10s)" % tree_set_name,
+            sys.stdout.write("%-3s: %-28s (%-10s) " % (
+                bench.lib_name, bench_name[6:34], tree_set_name))
             sys.stdout.flush()
 
             try:
-                result = runBench(bench, *benchmark_setup)
+                result = runBench(bench, *benchmark_setup, repeat=repeat)
             except SkippedTest:
-                print "skipped"
+                print("skipped")
             except KeyboardInterrupt:
-                print "interrupted by user"
+                print("interrupted by user")
                 sys.exit(1)
-            except Exception, e:
-                print "failed: %s: %s" % (e.__class__.__name__, e)
+            except Exception:
+                exc_type, exc_value = sys.exc_info()[:2]
+                print("failed: %s: %s" % (exc_type.__name__, exc_value))
+                exc_type = exc_value = None
             else:
-                print "%9.4f msec/pass, best of (" % min(result),
-                for t in result:
-                    print "%9.4f" % t,
-                print ")"
+                result.sort()
+                t_min, t_median, t_max = result[0], result[len(result) // 2], result[-1]
+                print(f"{t_min:9.4f} msec/pass, best of ({t_min:9.4f}, {t_median:9.4f}, {t_max:9.4f})")
 
         if len(benchmark_suites) > 1:
-            print # empty line between different benchmarks
+            print('')  # empty line between different benchmarks
+
 
 ############################################################
 # Main program
@@ -461,6 +532,8 @@ def main(benchmark_class):
     if import_lxml:
         from lxml import etree
         _etrees.append(etree)
+        print("Using lxml %s (with libxml2 %s)" % (
+            etree.__version__, '.'.join(map(str, etree.LIBXML_VERSION))))
 
         try:
             sys.argv.remove('-fel')
@@ -472,22 +545,6 @@ def main(benchmark_class):
                 etree.ElementDefaultClassLookup())
 
     if len(sys.argv) > 1:
-        if '-a' in sys.argv or '-c' in sys.argv:
-            # 'all' or 'C-implementations' ?
-            try:
-                sys.argv.remove('-c')
-            except ValueError:
-                pass
-            try:
-                import cElementTree as cET
-                _etrees.append(cET)
-            except ImportError:
-                try:
-                    import xml.etree.cElementTree as cET
-                    _etrees.append(cET)
-                except ImportError:
-                    pass
-
         try:
             # 'all' ?
             sys.argv.remove('-a')
@@ -495,34 +552,30 @@ def main(benchmark_class):
             pass
         else:
             try:
-                from elementtree import ElementTree as ET
+                from xml.etree import ElementTree as ET
                 _etrees.append(ET)
             except ImportError:
-                try:
-                    from xml.etree import ElementTree as ET
-                    _etrees.append(ET)
-                except ImportError:
-                    pass
+                pass
 
     if not _etrees:
-        print "No library to test. Exiting."
+        print("No library to test. Exiting.")
         sys.exit(1)
 
-    print "Preparing test suites and trees ..."
-    selected = set( sys.argv[1:] )
-    benchmark_suites, benchmarks = \
-                      buildSuites(benchmark_class, _etrees, selected)
+    print("Running benchmarks in Python %s" % (sys.version_info,))
 
-    print "Running benchmark on", ', '.join(b.lib_name
-                                            for b in benchmark_suites)
-    print
+    print("Preparing test suites and trees ...")
+    selected = set( sys.argv[1:] )
+    benchmark_suites, benchmarks = buildSuites(benchmark_class, _etrees, selected)
+
+    print("Running benchmark on", ', '.join(b.lib_name
+                                            for b in benchmark_suites))
+    print('')
 
     printSetupTimes(benchmark_suites)
 
     if callgrind_zero:
-        cmd = open("callgrind.cmd", 'w')
-        cmd.write('+Instrumentation\n')
-        cmd.write('Zero\n')
-        cmd.close()
+        with open("callgrind.cmd", 'w') as cmd:
+            cmd.write('+Instrumentation\n')
+            cmd.write('Zero\n')
 
-    runBenchmarks(benchmark_suites, benchmarks)
+    runBenchmarks(benchmark_suites, benchmarks, repeat=DEFAULT_REPEAT)

@@ -1,8 +1,7 @@
-import sys, copy
 from itertools import *
 
 import benchbase
-from benchbase import with_attributes, with_text, onlylib, serialized, children, nochange
+from benchbase import onlylib, children, nochange
 
 ############################################################
 # Benchmarks
@@ -13,7 +12,7 @@ class XPathBenchMark(benchbase.TreeBenchMark):
     @onlylib('lxe')
     @children
     def bench_xpath_class(self, children):
-        xpath = self.etree.XPath("./*[0]")
+        xpath = self.etree.XPath("./*[1]")
         for child in children:
             xpath(child)
 
@@ -22,7 +21,7 @@ class XPathBenchMark(benchbase.TreeBenchMark):
     @children
     def bench_xpath_class_repeat(self, children):
         for child in children:
-            xpath = self.etree.XPath("./*[0]")
+            xpath = self.etree.XPath("./*[1]")
             xpath(child)
 
     @nochange
@@ -30,14 +29,14 @@ class XPathBenchMark(benchbase.TreeBenchMark):
     def bench_xpath_element(self, root):
         xpath = self.etree.XPathElementEvaluator(root)
         for child in root:
-            xpath.evaluate("./*[0]")
+            xpath("./*[1]")
 
     @nochange
     @onlylib('lxe')
     @children
     def bench_xpath_method(self, children):
         for child in children:
-            child.xpath("./*[0]")
+            child.xpath("./*[1]")
 
     @nochange
     @onlylib('lxe')
@@ -67,7 +66,7 @@ class XPathBenchMark(benchbase.TreeBenchMark):
             else:
                 return ()
         extensions = {("test", "child") : return_child}
-        xpath = self.etree.XPath("t:child(.)", namespaces={"test":"t"},
+        xpath = self.etree.XPath("t:child(.)", namespaces={"t":"test"},
                                  extensions=extensions)
         for child in children:
             xpath(child)

@@ -1,9 +1,7 @@
-import sys, copy
 from itertools import *
 
 import benchbase
-from benchbase import (with_attributes, with_text, onlylib,
-                       serialized, children, nochange)
+from benchbase import (with_text, children, nochange)
 
 ############################################################
 # Benchmarks
@@ -19,7 +17,7 @@ class BenchMark(benchbase.TreeBenchMark):
         self.objectify = objectify
         parser = etree.XMLParser(remove_blank_text=True)
         lookup = objectify.ObjectifyElementClassLookup()
-        parser.setElementClassLookup(lookup)
+        parser.set_element_class_lookup(lookup)
         super(BenchMark, self).__init__(etree, parser)
 
     @nochange

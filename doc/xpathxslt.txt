@@ -38,21 +38,23 @@ The usual setup procedure:
   ...        if isinstance(s, str): s = s.encode("UTF-8")
   ...        return BytesIO(s)
 
-  >>> try: unicode = __builtins__["unicode"]
-  ... except (NameError, KeyError): unicode = str
+  >>> import sys
+  >>> if sys.version_info[0] == 2:
+  ...     from __builtin__ import unicode as str
 
 
 XPath
 =====
 
-lxml.etree supports the simple path syntax of the `find, findall and
-findtext`_ methods on ElementTree and Element, as known from the original
-ElementTree library (ElementPath_).  As an lxml specific extension, these
-classes also provide an ``xpath()`` method that supports expressions in the
+lxml.etree supports the simple path syntax of the
+`find, findall and findtext
+<https://docs.python.org/3/library/xml.etree.elementtree.html#xml.etree.ElementTree.Element.find>`_
+methods on ElementTree and Element, as known from the original
+ElementTree / ``xml.etree`` library (ElementPath_).  As an lxml specific extension,
+these classes also provide an ``xpath()`` method that supports expressions in the
 complete XPath syntax, as well as `custom extension functions`_.
 
-.. _ElementPath: http://effbot.org/zone/element-xpath.htm
-.. _`find,  findall and findtext`: http://effbot.org/zone/element.htm#searching-for-subelements
+.. _ElementPath: https://docs.python.org/3/library/xml.etree.elementtree.html#xpath-support
 .. _`custom extension functions`: extensions.html#xpath-extension-functions
 .. _`XSLT extension elements`: extensions.html#xslt-extension-elements
 
@@ -61,6 +63,15 @@ frequent evaluation: ``XPath`` and ``XPathEvaluator``.  See the `performance
 comparison`_ to learn when to use which.  Their semantics when used on
 Elements and ElementTrees are the same as for the ``xpath()`` method described
 here.
+
+.. note::
+
+   The ``.find*()`` methods are usually *faster* than the full-blown XPath
+   support.  They also support incremental tree processing through the
+   ``.iterfind()`` method, whereas XPath always collects all results before
+   returning them.  They are therefore recommended over XPath for both speed
+   and memory reasons, whenever there is no need for highly selective XPath
+   queries.
 
 .. _`performance comparison`: performance.html#xpath
 
@@ -133,15 +144,15 @@ in the XPath expression to namespace URIs:
 .. sourcecode:: pycon
 
   >>> f = StringIO('''\
-  ... <a:foo xmlns:a="http://codespeak.net/ns/test1" 
+  ... <a:foo xmlns:a="http://codespeak.net/ns/test1"
   ...        xmlns:b="http://codespeak.net/ns/test2">
   ...    <b:bar>Text</b:bar>
   ... </a:foo>
   ... ''')
   >>> doc = etree.parse(f)
 
-  >>> r = doc.xpath('/t:foo/b:bar',
-  ...               namespaces={'t': 'http://codespeak.net/ns/test1', 
+  >>> r = doc.xpath('/x:foo/b:bar',
+  ...               namespaces={'x': 'http://codespeak.net/ns/test1',
   ...                           'b': 'http://codespeak.net/ns/test2'})
   >>> len(r)
   1
@@ -306,7 +317,7 @@ By default, ``XPath`` supports regular expressions in the EXSLT_ namespace:
   >>> print(find(root)[0].text)
   aBc
 
-.. _EXSLT: http://www.exslt.org/
+.. _EXSLT: https://exslt.github.io/
 
 You can disable this with the boolean keyword argument ``regexp`` which
 defaults to True.
@@ -402,7 +413,7 @@ During evaluation, lxml will emit an XPathEvalError on errors:
   >>> find(root)
   Traceback (most recent call last):
     ...
-  lxml.etree.XPathEvalError: Undefined namespace prefix
+  lxml.etree.XPathEvalError: Undefined namespace prefix...
 
 This works for the ``XPath`` class, however, the other evaluators (including
 the ``xpath()`` method) are one-shot operations that do parsing and evaluation
@@ -419,7 +430,7 @@ in one step.  They therefore raise evaluation exceptions in all cases:
   >>> find = root.xpath("//ns:a")
   Traceback (most recent call last):
     ...
-  lxml.etree.XPathEvalError: Undefined namespace prefix
+  lxml.etree.XPathEvalError: Undefined namespace prefix...
 
   >>> find = root.xpath("\\")
   Traceback (most recent call last):
@@ -465,10 +476,17 @@ functions`_, `XSLT extension elements`_ and `document resolvers`_.
 There is a separate section on `controlling access`_ to external
 documents and resources.
 
-.. _`EXSLT regexp functions`: http://www.exslt.org/regexp/
+.. _`EXSLT regexp functions`: http://exslt.github.io/regexp/
 .. _`document resolvers`: resolvers.html
 .. _`controlling access`: resolvers.html#i-o-access-control-in-xslt
 
+.. note::
+
+   Due to a bug in libxslt the usage of ``<xsl:strip-space elements="*"/>``
+   in an XSLT stylesheet can lead to crashes or memory failures. It is therefore
+   advised not to use ``xsl:strip-space`` in stylesheets used with lxml.
+
+   For details see: https://gitlab.gnome.org/GNOME/libxslt/-/issues/14
 
 XSLT result objects
 -------------------
@@ -485,23 +503,23 @@ document:
   'Text'
 
 but, as opposed to normal ElementTree objects, can also be turned into an (XML
-or text) string by applying the str() function:
+or text) string by applying the ``bytes()`` function (``str()`` in Python 2):
+
+.. sourcecode:: pycon
+
+  >>> bytes(result)
+  b'<?xml version="1.0"?>\n<foo>Text</foo>\n'
+
+The result is always a plain string, encoded as requested by the ``xsl:output``
+element in the stylesheet.  If you want a Python Unicode/Text string instead,
+you should set this encoding to ``UTF-8`` (unless the `ASCII` default
+is sufficient).  This allows you to call the builtin ``str()`` function on
+the result (``unicode()`` in Python 2):
 
 .. sourcecode:: pycon
 
   >>> str(result)
   '<?xml version="1.0"?>\n<foo>Text</foo>\n'
-
-The result is always a plain string, encoded as requested by the
-``xsl:output`` element in the stylesheet.  If you want a Python unicode string
-instead, you should set this encoding to ``UTF-8`` (unless the `ASCII` default
-is sufficient).  This allows you to call the builtin ``unicode()`` function on
-the result:
-
-.. sourcecode:: pycon
-
-  >>> unicode(result)
-  u'<?xml version="1.0"?>\n<foo>Text</foo>\n'
 
 You can use other encodings at the cost of multiple recoding.  Encodings that
 are not supported by Python will result in an error:
@@ -519,10 +537,38 @@ are not supported by Python will result in an error:
   >>> transform = etree.XSLT(xslt_tree)
 
   >>> result = transform(doc)
-  >>> unicode(result)
+  >>> str(result)
   Traceback (most recent call last):
     ...
   LookupError: unknown encoding: UCS4
+
+While it is possible to use the ``.write()`` method (known from ``ElementTree``
+objects) to serialise the XSLT result into a file, it is better to use the
+``.write_output()`` method.  The latter knows about the ``<xsl:output>`` tag
+and writes the expected data into the output file.
+
+.. sourcecode:: pycon
+
+  >>> xslt_root = etree.XML('''\
+  ... <xsl:stylesheet version="1.0"
+  ...     xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+  ...     <xsl:output method="text" encoding="utf8" />
+  ...     <xsl:template match="/">
+  ...         <foo><xsl:value-of select="/a/b/text()" /></foo>
+  ...     </xsl:template>
+  ... </xsl:stylesheet>''')
+  >>> transform = etree.XSLT(xslt_root)
+
+  >>> result = transform(doc)
+  >>> result.write_output("output.txt.gz", compression=9)    # doctest: +SKIP
+
+..
+  >>> from io import BytesIO
+  >>> out = BytesIO()
+  >>> result.write_output(out)
+  >>> data = out.getvalue()
+  >>> b'Text' in data
+  True
 
 
 Stylesheet parameters
@@ -550,32 +596,32 @@ First, let's try passing in a simple integer expression:
 .. sourcecode:: pycon
 
   >>> result = transform(doc_root, a="5")
-  >>> str(result)
-  '<?xml version="1.0"?>\n<foo>5</foo>\n'
+  >>> bytes(result)
+  b'<?xml version="1.0"?>\n<foo>5</foo>\n'
 
 You can use any valid XPath expression as parameter value:
 
 .. sourcecode:: pycon
 
   >>> result = transform(doc_root, a="/a/b/text()")
-  >>> str(result)
-  '<?xml version="1.0"?>\n<foo>Text</foo>\n'
+  >>> bytes(result)
+  b'<?xml version="1.0"?>\n<foo>Text</foo>\n'
 
 It's also possible to pass an XPath object as a parameter:
 
 .. sourcecode:: pycon
 
   >>> result = transform(doc_root, a=etree.XPath("/a/b/text()"))
-  >>> str(result)
-  '<?xml version="1.0"?>\n<foo>Text</foo>\n'
+  >>> bytes(result)
+  b'<?xml version="1.0"?>\n<foo>Text</foo>\n'
 
 Passing a string expression looks like this:
 
 .. sourcecode:: pycon
 
   >>> result = transform(doc_root, a="'A'")
-  >>> str(result)
-  '<?xml version="1.0"?>\n<foo>A</foo>\n'
+  >>> bytes(result)
+  b'<?xml version="1.0"?>\n<foo>A</foo>\n'
 
 To pass a string that (potentially) contains quotes, you can use the
 ``.strparam()`` class method.  Note that it does not escape the
@@ -587,8 +633,8 @@ value.
   >>> plain_string_value = etree.XSLT.strparam(
   ...                          """ It's "Monty Python" """)
   >>> result = transform(doc_root, a=plain_string_value)
-  >>> str(result)
-  '<?xml version="1.0"?>\n<foo> It\'s "Monty Python" </foo>\n'
+  >>> bytes(result)
+  b'<?xml version="1.0"?>\n<foo> It\'s "Monty Python" </foo>\n'
 
 If you need to pass parameters that are not legal Python identifiers,
 pass them inside of a dictionary:
@@ -605,8 +651,8 @@ pass them inside of a dictionary:
   ... </xsl:stylesheet>'''))
 
   >>> result = transform(doc_root, **{'non-python-identifier': '5'})
-  >>> str(result)
-  '<?xml version="1.0"?>\n<foo>5</foo>\n'
+  >>> bytes(result)
+  b'<?xml version="1.0"?>\n<foo>5</foo>\n'
 
 
 
@@ -635,10 +681,10 @@ error log.
 
   >>> doc_root = etree.XML('<a><b>Text</b></a>')
   >>> result = transform(doc_root)
-  >>> str(result)
-  '<?xml version="1.0"?>\n<foo>Text</foo>\n'
+  >>> bytes(result)
+  b'<?xml version="1.0"?>\n<foo>Text</foo>\n'
 
-  >>> transform.error_log
+  >>> print(transform.error_log)
   <string>:0:0:ERROR:XSLT:ERR_OK: STARTING
   <string>:0:0:ERROR:XSLT:ERR_OK: DONE
 
@@ -678,8 +724,8 @@ operations, as you do not have to instantiate a stylesheet yourself:
 .. sourcecode:: pycon
 
   >>> result = doc.xslt(xslt_tree, a="'A'")
-  >>> str(result)
-  '<?xml version="1.0"?>\n<foo>A</foo>\n'
+  >>> bytes(result)
+  b'<?xml version="1.0"?>\n<foo>A</foo>\n'
 
 This is a shortcut for the following code:
 
@@ -687,8 +733,8 @@ This is a shortcut for the following code:
 
   >>> transform = etree.XSLT(xslt_tree)
   >>> result = transform(doc, a="'A'")
-  >>> str(result)
-  '<?xml version="1.0"?>\n<foo>A</foo>\n'
+  >>> bytes(result)
+  b'<?xml version="1.0"?>\n<foo>A</foo>\n'
 
 
 Dealing with stylesheet complexity
@@ -700,7 +746,7 @@ some ideas to try.
 
 The most simple way to reduce the diversity is by using XSLT
 parameters that you pass at call time to configure the stylesheets.
-The ``partial()`` function in the ``functools`` module of Python 2.5
+The ``partial()`` function in the ``functools`` module
 may come in handy here.  It allows you to bind a set of keyword
 arguments (i.e. stylesheet parameters) to a reference of a callable
 stylesheet.  The same works for instances of the ``XPath()``
@@ -711,8 +757,7 @@ create an XSL tree, e.g. from a parsed template, and then add or
 replace parts as you see fit.  Passing an XSL tree into the ``XSLT()``
 constructor multiple times will create independent stylesheets, so
 later modifications of the tree will not be reflected in the already
-created stylesheets.  This makes stylesheet generation very straight
-forward.
+created stylesheets.  This makes stylesheet generation very straightforward.
 
 A third thing to remember is the support for `custom extension
 functions`_ and `XSLT extension elements`_.  Some things are much

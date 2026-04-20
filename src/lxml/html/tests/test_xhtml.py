@@ -1,10 +1,9 @@
-import unittest, sys
-from lxml.tests.common_imports import make_doctest
-import lxml.html
+import doctest
+import unittest
 
 def test_suite():
     suite = unittest.TestSuite()
-    suite.addTests([make_doctest('test_xhtml.txt')])
+    suite.addTests([doctest.DocFileSuite('test_xhtml.txt')])
     return suite
 
 if __name__ == '__main__':
