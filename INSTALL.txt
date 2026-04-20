@@ -41,7 +41,8 @@ see below.
 Requirements
 ------------
 
-You need Python 3.8+ for lxml 6.0 and later.
+You need Python 3.7+ for this Python 3.7-compatible build of lxml 6.0.
+Upstream lxml 6.0 and later require Python 3.8+.
 You need Python 3.6+ for lxml 5.0 and later.
 lxml versions before 5.0 support Python 2.7 and 3.6+.
 
