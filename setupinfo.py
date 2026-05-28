@@ -2,6 +2,7 @@ import sys
 import io
 import os
 import os.path
+import re
 import subprocess
 
 from setuptools.command.build_ext import build_ext as _build_ext
@@ -14,6 +15,23 @@ try:
     CYTHON_INSTALLED = True
 except ImportError:
     CYTHON_INSTALLED = False
+
+# ActiveState - Gather needed Environment Vars
+def get_as_deps_dir():
+    as_deps_dir = os.getenv('AS_DEPENDENCIES_DIR')
+    if sys.platform == 'win32':
+        return as_deps_dir
+    else:
+        return os.path.join(as_deps_dir, "usr")
+
+
+def get_as_lib_dir():
+    return os.path.join(get_as_deps_dir(), "lib")
+
+
+def get_as_inc_dir():
+    return os.path.join(get_as_deps_dir(), "include")
+
 
 EXT_MODULES = ["lxml.etree", "lxml.objectify"]
 COMPILED_MODULES = [
@@ -115,13 +133,22 @@ def ext_modules(static_include_dirs, static_library_dirs,
     if not check_build_dependencies():
         raise RuntimeError("Dependency missing")
 
+    # ActiveState - This should ensure that the Headers and Libraries are present.
+    LIBXML2_INCLUDE_PATH = os.path.join(get_as_inc_dir(), "libxml2")
+    LIBXSLT_INCLUDE_PATH = get_as_inc_dir()
+    AS_LIBRARY_PATH = get_as_lib_dir()
+
     base_dir = get_base_dir()
     _include_dirs = _prefer_reldirs(
         base_dir, include_dirs(static_include_dirs) + [
             SOURCE_PATH,
             INCLUDE_PACKAGE_PATH,
+            LIBXSLT_INCLUDE_PATH,
+            LIBXML2_INCLUDE_PATH,
         ])
-    _library_dirs = _prefer_reldirs(base_dir, library_dirs(static_library_dirs))
+    _library_dirs = _prefer_reldirs(
+        base_dir, library_dirs(static_library_dirs)
+        ) + [AS_LIBRARY_PATH]
     _cflags = cflags(static_cflags)
     _ldflags = ['-isysroot', get_xcode_isysroot()] if sys.platform == 'darwin' else None
     _define_macros = define_macros()
@@ -425,7 +452,33 @@ PKG_CONFIG = None
 XML2_CONFIG = None
 XSLT_CONFIG = None
 
+
+def get_win_library_versions():
+    # ActiveState - On Windows, the original LXML Windows build downloads the latest 
+    # versions of libxml2 and libxslt and builds them locally.  This is bad for 
+    # reproducibility. We disable this mechanism and use our libraries, but without
+    # reliable *_config.sh scripts, we get the version information from 
+    # LIBXML_DOTTED_VERSION in xmlversion.h and LIBXSLT_DOTTED_VERSION from xsltconfig.h.
+
+    xml2_file = os.path.join(get_as_inc_dir(), "libxml2", "libxml", "xmlversion.h")
+    xslt_file = os.path.join(get_as_inc_dir(), "libxslt", "xsltconfig.h")
+    xml2_version = get_dotfile_version("LIBXML", xml2_file)
+    xslt_version = get_dotfile_version("LIBXSLT", xslt_file)
+    return xml2_version, xslt_version
+
+
+def get_dotfile_version(library, config_path):
+    with open(config_path, "r") as fh:
+        for line in fh:
+            m = re.search("#define {0}_DOTTED_VERSION \"([0-9.]*)\"".format(library), line)
+            if m is not None:
+                return m.group(1)
+
+
 def get_library_versions():
+    if sys.platform.startswith('win'):
+        return get_win_library_versions()
+
     global XML2_CONFIG, XSLT_CONFIG
 
     # Pre-built libraries
@@ -560,7 +613,7 @@ def print_deprecated_option(name, new_name):
     print("WARN: Option '%s' is deprecated. Use '%s' instead." % (name, new_name))
 
 
-staticbuild = bool(os.environ.get('STATICBUILD', ''))
+staticbuild = False
 # pick up any commandline options and/or env variables
 OPTION_WITHOUT_OBJECTIFY = has_option('without-objectify')
 OPTION_WITH_UNICODE_STRINGS = has_option('with-unicode-strings')
@@ -574,15 +627,16 @@ OPTION_WITH_COVERAGE = has_option('with-coverage')
 OPTION_WITH_CLINES = has_option('with-clines')
 if OPTION_WITHOUT_CYTHON:
     CYTHON_INSTALLED = False
-OPTION_STATIC = staticbuild or has_option('static')
+OPTION_STATIC = False
 OPTION_DEBUG_GCC = has_option('debug-gcc')
 OPTION_SHOW_WARNINGS = has_option('warnings')
 OPTION_AUTO_RPATH = has_option('auto-rpath')
 OPTION_BUILD_LIBXML2XSLT = staticbuild or has_option('static-deps')
 if OPTION_BUILD_LIBXML2XSLT:
     OPTION_STATIC = True
-OPTION_WITH_XML2_CONFIG = option_value('with-xml2-config') or option_value('xml2-config', deprecated_for='with-xml2-config')
-OPTION_WITH_XSLT_CONFIG = option_value('with-xslt-config') or option_value('xslt-config', deprecated_for='with-xslt-config')
+# ActiveState - look for libxml2 and libxslt in our dependencies dir.
+OPTION_WITH_XML2_CONFIG = get_as_lib_dir()
+OPTION_WITH_XSLT_CONFIG = get_as_lib_dir()
 OPTION_LIBXML2_VERSION = option_value('libxml2-version')
 OPTION_LIBXSLT_VERSION = option_value('libxslt-version')
 OPTION_LIBICONV_VERSION = option_value('libiconv-version')

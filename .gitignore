@@ -55,6 +55,7 @@ src/lxml/html/*.html
 src/lxml/html/*.c
 src/lxml/*.html
 src/lxml/*.c
+!src/lxml/etree.c
 src/lxml/etree.h
 src/lxml/etree_api.h
 src/lxml/lxml.etree.c
