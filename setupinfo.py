@@ -331,7 +331,7 @@ def libraries():
         libs = ['libxslt', 'libexslt', 'libxml2', 'iconv']
         if OPTION_STATIC:
             libs = ['%s_a' % lib for lib in libs]
-        libs.extend(['zlib', 'WS2_32'])
+        libs.extend(['z', 'WS2_32'])
     elif OPTION_STATIC:
         libs = standard_libs
     else:
