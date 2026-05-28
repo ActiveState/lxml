@@ -2,6 +2,34 @@
 lxml changelog
 ==============
 
+5.0.2+security.1 (2026-05-28)
+==============================
+
+Security
+--------
+
+* CVE-2026-41066: ``iterparse()`` and ``ETCompatXMLParser()`` now default to
+  ``resolve_entities='internal'`` instead of ``True``, preventing XXE injection
+  from untrusted XML input. Fix applied in Cython source (``iterparse.pxi``,
+  ``parser.pxi``). (GHSA-vfmq-68hx-4jfw)
+
+Bug fixes
+---------
+
+* Fixed ``-Werror=incompatible-pointer-types`` compiler error on Rocky 9 / GCC 14
+  with libxml2 2.15.x: added explicit Cython cast for ``c_attribute.defaultValue``
+  in ``proxy.pxi``.
+
+* Fixed Windows static linking: changed ``'zlib'`` to ``'z'`` in
+  ``setupinfo.py`` ``libs.extend()`` call.
+
+* Fixed ``versioninfo.py`` to use ``__file__`` instead of ``sys.argv[0]``
+  for base directory detection when invoked via the AS builder.
+
+* Fixed ``setupinfo.py`` f-string in ``get_dotfile_version()`` to use
+  ``str.format()`` for Python 2.7 compatibility.
+
+
 5.0.2 (2024-03-28)
 ==================
 

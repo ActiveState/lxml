@@ -78,4 +78,4 @@ def create_version_h():
 
 
 def get_base_dir():
-    return os.path.abspath(os.path.dirname(sys.argv[0]))
+    return os.path.abspath(os.path.dirname(__file__))
