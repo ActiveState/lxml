@@ -63,10 +63,21 @@ class DeprecatedAliasesTestCase(HelperTestCase):
                         is not None)
 
 
+class VersionTestCase(HelperTestCase):
+    def test_lxml_version_is_numeric(self):
+        # A post release (5.0.2.postN) must still unpack to four integers,
+        # so that tuple comparisons against LXML_VERSION work on Python 3.
+        self.assertEqual(4, len(etree.LXML_VERSION))
+        for part in etree.LXML_VERSION:
+            self.assertTrue(isinstance(part, int), etree.LXML_VERSION)
+
+
 def test_suite():
     suite = unittest.TestSuite()
     suite.addTests([unittest.defaultTestLoader.loadTestsFromTestCase(
         DeprecatedAliasesTestCase)])
+    suite.addTests([unittest.defaultTestLoader.loadTestsFromTestCase(
+        VersionTestCase)])
     return suite
 
 
