@@ -253,6 +253,10 @@ cdef __unpackDottedVersion(version):
             elif item.startswith(u'beta'):
                 count = item[4:]
                 item = -100
+            elif item.startswith(u'post'):
+                # ActiveState post releases: 5.0.2.post2 -> (5, 0, 2, 2)
+                count = item[4:]
+                item = 0
             else:
                 count = 0
             if count:

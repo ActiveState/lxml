@@ -336,6 +336,12 @@ def libraries():
         libs = standard_libs
     else:
         libs = ['xslt', 'exslt', 'xml2'] + standard_libs
+        # Static libxml2/libxslt archives carry no DT_NEEDED entries, so also link
+        # every library their config tools report (e.g. -liconv for GNU libiconv,
+        # -lpthread, -ldl).  With shared libraries this is harmless.
+        for flag in flags('libs'):
+            if flag.startswith('-l') and flag[2:] not in libs:
+                libs.append(flag[2:])
     return libs
 
 def library_dirs(static_library_dirs):

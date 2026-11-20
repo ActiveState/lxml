@@ -2,6 +2,24 @@
 lxml changelog
 ==============
 
+5.0.2.post2 (2026-11-19)
+========================
+
+Bug fixes
+---------
+
+* Restored the deprecated methods that lxml 5.0 removed, for code written
+  against lxml 4.x: ``XPath.evaluate()`` (also on ``ETXPath`` and
+  ``XPathEvaluator``), ``parser.setElementClassLookup()`` and
+  ``XSLT.apply()``.  Each is an alias of the supported call, as in lxml 4.9.
+
+* ``setupinfo.py`` links every library ``xml2-config`` and ``xslt-config``
+  report, so static ``libxml2.a`` builds pick up ``-liconv`` and similar.
+
+* ``LXML_VERSION`` parses a ``.postN`` suffix as the fourth number, so
+  5.0.2.post2 is ``(5, 0, 2, 2)``.
+
+
 5.0.2+security.1 (2026-05-28)
 ==============================
 
